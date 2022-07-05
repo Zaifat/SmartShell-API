@@ -1,7 +1,7 @@
 <?php
 $login = "79525554445"; // логин smartshell
 $password = "password"; // пароль smartshell
-$id = "1620"; // узнать свой ид клуба http://АДРЕС/SmartShellAlisa.php?d=clubs
+$id = "1620"; // узнать свой ид клуба http://АДРЕС/SmartShell_Alisa.php?d=clubs
 $ya_token = "токен"; // как получить токен смотрите https://www.youtube.com/watch?v=zHcx-TD4ZPU
 
 
