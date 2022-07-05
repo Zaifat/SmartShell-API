@@ -25,7 +25,7 @@ $password = "password"; // пароль smartshell
 $id = "9999"; // узнать свой ид клуба http://ССЫЛКА/SmartShell_Alisa.php?d=clubs
 $ya_token = "токен"; // как получить токен умного дома от яндекса смотрите http://www.youtube.com/watch?v=zHcx-TD4ZPU
 ```
-<br><br>
+
 5. Закинуть файл на веб хостинг, либо понять сервер на компьютере администратора с помощью того же openserver (https://ospanel.io/)
 
 6. Создать задания в планировщике задач
