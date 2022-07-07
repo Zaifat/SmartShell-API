@@ -29,6 +29,9 @@ if(isset($_GET['d'])) {
 
     if($_GET['d'] == "clubs") {
 
+        UpToken($login,$password,$id);
+        require 'token.php';
+
         $clubs = GetClubs($login,$password);
 
         echo '<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><title>Список ваших клубов</title></head><body>';
