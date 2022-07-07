@@ -32,6 +32,9 @@ if(isset($_GET['d'])) {
     }
 
     if($_GET['d'] == "clubs") {
+        
+        UpToken($login,$password,$id);
+        require 'token.php';
 
         $clubs = GetClubs($login,$password);
 
