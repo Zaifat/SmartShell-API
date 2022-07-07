@@ -68,7 +68,7 @@ function GetUsers($token) {
         'authorization: Bearer '.$token,
         'Content-Type: application/json',
     ];
-    $post_fields = '{"operationName":"clients","variables":{"input":{"q":"","sort":{"field":"last_client_activity","direction":"ASC"}},"first":5,"page":1},"query":"query clients($input: ClientsInput, $first: Int, $page: Int) {\n  clients(input: $input, first: $first, page: $page) {\n    paginatorInfo {\n      count\n      currentPage\n      lastPage\n    }\n    data {\n      id\n      login\n      phone\n      deposit\n      last_client_activity\n      dob\n      first_name\n      last_name\n      middle_name\n      roles {\n        id\n        alias\n        title\n      }\n      last_comment {\n        text\n      }\n      total_hours\n      created_at\n      banned_at\n      disabled_at\n      user_discount\n    }\n  }\n}\n"}';
+    $post_fields = '{"operationName":"clients","variables":{"input":{"q":"","sort":{"field":"last_client_activity","direction":"ASC"}},"first":999,"page":1},"query":"query clients($input: ClientsInput, $first: Int, $page: Int) {\n  clients(input: $input, first: $first, page: $page) {\n    paginatorInfo {\n      count\n      currentPage\n      lastPage\n    }\n    data {\n      id\n      login\n      phone\n      deposit\n      last_client_activity\n      dob\n      first_name\n      last_name\n      middle_name\n      roles {\n        id\n        alias\n        title\n      }\n      last_comment {\n        text\n      }\n      total_hours\n      created_at\n      banned_at\n      disabled_at\n      user_discount\n    }\n  }\n}\n"}';
         
     $users = GetCurl($url,$headers,$post_fields);
 
