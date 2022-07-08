@@ -8,7 +8,7 @@ $ya_token = "токен"; // как получить токен смотрите
 
 
 
-if (file_exists("token.php")) {
+if (!file_exists("token.php")) {
     file_put_contents('token.php', '');
 }
 
