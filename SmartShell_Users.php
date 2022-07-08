@@ -6,7 +6,7 @@ $id = "9999"; // узнать свой ид клуба http://АДРЕС/SmartSh
 
 
 
-if (file_exists("token.php")) {
+if (!file_exists("token.php")) {
     file_put_contents('token.php', '');
 }
 
