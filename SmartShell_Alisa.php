@@ -10,41 +10,34 @@ $ya_token = "токен"; // как получить токен смотрите
 
 
 
-ini_set('max_execution_time', 900);
-TokenUP($login,$password,$id);
-require 'token.php';
+if(isset($_GET['d']) AND $_GET['d'] == "clubs") {
 
+    $clubs = GetClubs($login,$password);
 
-if(isset($_GET['d'])) {
-
-    if($_GET['d'] == "check") {
-            
-        for ($cycle = 1; $cycle <= 4; $cycle++) {
-            GetCheck($token,$ya_token);
-            sleep(15);
-        }
-
+    echo '<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><title>Список ваших клубов</title></head><body>';
+    echo "<h1>Список ваших клубов</h1><br><br>";
+    foreach($clubs['data']['userClubs'] as $club) {
+		echo "<h3>id клуба: ".$club['id']." Название клуба: ".$club['name']."</h3>";
     }
-
-
-    if($_GET['d'] == "clubs") {
-        
-        UpToken($login,$password,$id);
-        require 'token.php';
-
-        $clubs = GetClubs($login,$password);
-
-        echo '<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><title>Список ваших клубов</title></head><body>';
-        echo "<h1>Список ваших клубов</h1><br><br>";
-        foreach($clubs['data']['userClubs'] as $club) {
-            echo "<h3>id клуба: ".$club['id']." Название клуба: ".$club['name']."</h3>";
-        }
-        echo '</body></html>';
-
-    }
+    echo '</body></html>';
 
 }
 
+
+
+
+if(isset($_GET['d']) AND $_GET['d'] == "check") {
+	
+	ini_set('max_execution_time', 900);
+	TokenUP($login,$password,$id);
+	require 'token.php';
+			
+    for ($cycle = 1; $cycle <= 4; $cycle++) {
+        GetCheck($token,$ya_token);
+        sleep(15);
+    }
+
+}
 
 
 
