@@ -6,16 +6,28 @@ $id = "9999"; // узнать свой ид клуба http://АДРЕС/SmartSh
 
 
 
-if (!file_exists("token.php")) {
-    file_put_contents('token.php', '');
+
+if(isset($_GET['d']) AND $_GET['d'] == "clubs") {
+
+    $clubs = GetClubs($login,$password);
+
+    echo '<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><title>Список ваших клубов</title></head><body>';
+    echo "<h1>Список ваших клубов</h1><br><br>";
+    foreach($clubs['data']['userClubs'] as $club) {
+		echo "<h3>id клуба: ".$club['id']." Название клуба: ".$club['name']."</h3>";
+    }
+    echo '</body></html>';
+
 }
 
-if(isset($_GET['d'])) {
 
-    if($_GET['d'] == "users") {
-            
-        UpToken($login,$password,$id);
-        require 'token.php';
+
+
+if(isset($_GET['d']) AND $_GET['d'] == "users") {
+	
+		ini_set('max_execution_time', 900);
+		TokenUP($login,$password,$id);
+		require 'token.php';
 
         $users = GetUsers($token);
 
@@ -25,33 +37,9 @@ if(isset($_GET['d'])) {
         }
         file_put_contents('users.csv', iconv('utf-8', 'windows-1251', $u));
 
-    }
-
-    if($_GET['d'] == "clubs") {
-
-        UpToken($login,$password,$id);
-        require 'token.php';
-
-        $clubs = GetClubs($login,$password);
-
-        echo '<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><title>Список ваших клубов</title></head><body>';
-        echo "<h1>Список ваших клубов</h1><br><br>";
-        foreach($clubs['data']['userClubs'] as $club) {
-            echo "<h3>id клуба: ".$club['id']." Название клуба: ".$club['name']."</h3>";
-        }
-        echo '</body></html>';
-
-    }
-
 }
 
 
-function UpToken($login,$password,$id) {
-
-    $token = GetToken($login,$password,$id);
-    file_put_contents('token.php', '<?php $token = "'.$token['data']['login']['access_token'].'";');
-    
-}
 
 
 function Logs($log, $die = 0) {
@@ -102,20 +90,32 @@ function GetClubs($login,$password) {
 }
 
 
-function GetToken($login,$password,$id) {
+function TokenUP($login,$password,$id) {
   
-    $url = "https://billing.smartshell.gg/api/graphql";
-    $headers = [
-        'Content-Type: application/json',
-    ];
-    $post_fields = '{"operationName":"login","variables":{"input":{"login":"'.$login.'","password":"'.$password.'","company_id":'.$id.'}},"query":"mutation login($input: LoginInput!) {\n  login(input: $input) {\n    access_token\n  }\n}\n"}';
-        
-    $token = GetCurl($url,$headers,$post_fields);
-    if(!isset($token['data']['login']['access_token']) OR $token['data']['login']['access_token'] == '') {
-        Logs("проблемы с получением Токена SmartShell", 1);
-    }
+	if (file_exists("token.php")) {
+		$ftime = (time() - filectime("token.php"));
+	} 
+	
+	if($ftime > 85000 OR !file_exists("token.php")) {	
+		$url = "https://billing.smartshell.gg/api/graphql";
+		$headers = [
+			'Content-Type: application/json',
+		];
+		$post_fields = '{"operationName":"login","variables":{"input":{"login":"'.$login.'","password":"'.$password.'","company_id":'.$id.'}},"query":"mutation login($input: LoginInput!) {\n  login(input: $input) {\n    access_token\n  }\n}\n"}';
+				
+		$token = GetCurl($url,$headers,$post_fields);
+		if(!isset($token['data']['login']['access_token']) OR $token['data']['login']['access_token'] == '') {
+			Logs("проблемы с получением Токена SmartShell", 1);
+		}
+			
+		file_put_contents('token.php', '<?php $token = "'.$token['data']['login']['access_token'].'";');
 
-    return $token;
+		if (file_exists("token.php")) {
+			Logs("Токен обновлен!"); 
+		} else {  
+			Logs("Проблемы с созданием файла token.php",1); 
+		}
+	}
 
 }
 
@@ -123,7 +123,7 @@ function GetToken($login,$password,$id) {
 function GetCurl($url,$headers,$post_fields = null) {
 
     $ch = curl_init();
-    $timeout = 5;
+    $timeout = 15;
     curl_setopt($ch, CURLOPT_URL, $url);
 
     if (!empty($post_fields)) {
