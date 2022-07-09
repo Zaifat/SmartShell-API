@@ -1,7 +1,7 @@
 <?php
 $login = "79521231234"; // логин smartshell
 $password = "password"; // пароль smartshell
-$id = "9999"; // узнать свой ид клуба http://АДРЕС/SmartShellAlisa.php?d=clubs
+$id = "9999"; // узнать свой ид клуба http://АДРЕС/SmartShell_Users.php?d=clubs
 
 
 
