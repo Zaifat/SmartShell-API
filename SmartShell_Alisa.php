@@ -8,11 +8,12 @@ $ya_token = "токен"; // как получить токен смотрите
 
 
 
-if (!file_exists("token.php")) {
-    file_put_contents('token.php', '');
-}
 
+
+ini_set('max_execution_time', 900);
+TokenUP($login,$password,$id);
 require 'token.php';
+
 
 if(isset($_GET['d'])) {
 
@@ -25,11 +26,6 @@ if(isset($_GET['d'])) {
 
     }
 
-    if($_GET['d'] == "token") {
-
-        UpToken($login,$password,$id);
-
-    }
 
     if($_GET['d'] == "clubs") {
         
@@ -52,12 +48,6 @@ if(isset($_GET['d'])) {
 
 
 
-function UpToken($login,$password,$id) {
-
-    $token = GetToken($login,$password,$id);
-    file_put_contents('token.php', '<?php $token = "'.$token['data']['login']['access_token'].'";');
-    
-}
 
 
 function GetCheck($token,$ya_token) {
@@ -82,14 +72,7 @@ function GetCheck($token,$ya_token) {
 }
 
 
-function Logs($log, $die = 0) {
-    $data = date('Y-m-d H:i:s')." ";
-    $data .= $log;
-    $data .= "\r\n";
 
-    file_put_contents('log.txt', $data, FILE_APPEND);
-    if($die == 1) die($log);
-}
 
 function YaApiDevEdd($token, $id, $v) {
 
@@ -152,6 +135,16 @@ function YaApiDev($token) {
 }
 
 
+function Logs($log, $die = 0) {
+    $data = date('Y-m-d H:i:s')." ";
+    $data .= $log;
+    $data .= "\r\n";
+
+    file_put_contents('log.txt', $data, FILE_APPEND);
+    if($die == 1) die($log);
+}
+
+
 function GetBox($token) {
   
     $url = "https://billing.smartshell.gg/api/graphql";
@@ -168,6 +161,7 @@ function GetBox($token) {
 
     return $box;
 }
+
 
 function GetClubs($login,$password) {
   
@@ -188,29 +182,40 @@ function GetClubs($login,$password) {
 }
 
 
-function GetToken($login,$password,$id) {
+function TokenUP($login,$password,$id) {
   
-    $url = "https://billing.smartshell.gg/api/graphql";
-    $headers = [
-        'Content-Type: application/json',
-    ];
-    $post_fields = '{"operationName":"login","variables":{"input":{"login":"'.$login.'","password":"'.$password.'","company_id":'.$id.'}},"query":"mutation login($input: LoginInput!) {\n  login(input: $input) {\n    access_token\n  }\n}\n"}';
-        
-    $token = GetCurl($url,$headers,$post_fields);
-    if(!isset($token['data']['login']['access_token']) OR $token['data']['login']['access_token'] == '') {
-        Logs("проблемы с получением Токена SmartShell", 1);
-    }
+	if (file_exists("token.php")) {
+		$ftime = (time() - filectime("token.php"));
+	} 
+	
+	if($ftime > 85000 OR !file_exists("token.php")) {	
+		$url = "https://billing.smartshell.gg/api/graphql";
+		$headers = [
+			'Content-Type: application/json',
+		];
+		$post_fields = '{"operationName":"login","variables":{"input":{"login":"'.$login.'","password":"'.$password.'","company_id":'.$id.'}},"query":"mutation login($input: LoginInput!) {\n  login(input: $input) {\n    access_token\n  }\n}\n"}';
+				
+		$token = GetCurl($url,$headers,$post_fields);
+		if(!isset($token['data']['login']['access_token']) OR $token['data']['login']['access_token'] == '') {
+			Logs("проблемы с получением Токена SmartShell", 1);
+		}
+			
+		file_put_contents('token.php', '<?php $token = "'.$token['data']['login']['access_token'].'";');
 
-    return $token;
+		if (file_exists("token.php")) {
+			Logs("Токен обновлен!"); 
+		} else {  
+			Logs("Проблемы с созданием файла token.php",1); 
+		}
+	}
 
 }
-
 
 
 function GetCurl($url,$headers,$post_fields = null) {
 
     $ch = curl_init();
-    $timeout = 5;
+    $timeout = 15;
     curl_setopt($ch, CURLOPT_URL, $url);
 
     if (!empty($post_fields)) {
@@ -238,10 +243,3 @@ function GetCurl($url,$headers,$post_fields = null) {
     $data = json_decode($data, true);
     return  $data;
 }
-
-
-
-
-
-
-
