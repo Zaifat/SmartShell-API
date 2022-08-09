@@ -1,18 +1,3 @@
-# SmartShell_Users
-Выгрузка списка пользователей клуба в таблицу csv
-
-1. Закинуть файл на веб хостинг, либо поднять сервер на компьютере администратора с помощью того же openserver (https://ospanel.io/)
-2. Настроить конфиг в файле
-
-```PHP
-$login = "7956665557"; // логин smartshell
-$password = "password"; // пароль smartshell
-$id = "9999"; // узнать свой ид клуба http://ССЫЛКА/SmartShell_Users.php?d=clubs
-```
-3. Открыть ссылку в браузере http://ССЫЛКА/SmartShell_Users.php?d=users
-4. Скачать таблицу со списком юзеров, и радоваться.
-
-
 # SmartShell_Alisa
 Интеграция SmartShell и "Умный дом с Алисой"
 
