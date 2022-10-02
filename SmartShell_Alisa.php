@@ -1,28 +1,18 @@
 <?php
-$login = "79525554445"; // логин smartshell
-$password = "password"; // пароль smartshell
-$id = "1620"; // узнать свой ид клуба http://АДРЕС/SmartShell_Alisa.php?d=clubs
-$ya_token = "токен"; // как получить токен смотрите https://www.youtube.com/watch?v=zHcx-TD4ZPU
+$login = "79999999999"; // логин smartshell
+$password = "pass"; // пароль smartshell
+$id = ""; // как узнать свой ид клуба смотри скриншот https://ibb.co/fC2m0gD
+$ya_token = ""; // как получить токен смотрите https://www.youtube.com/watch?v=zHcx-TD4ZPU
 
 
 
 
-
-
-
-if(isset($_GET['d']) AND $_GET['d'] == "clubs") {
-
-    $clubs = GetClubs($login,$password);
-
-    echo '<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><title>Список ваших клубов</title></head><body>';
-    echo "<h1>Список ваших клубов</h1><br><br>";
-    foreach($clubs['data']['userClubs'] as $club) {
-		echo "<h3>id клуба: ".$club['id']." Название клуба: ".$club['name']."</h3>";
-    }
-    echo '</body></html>';
-
+if(isset($_GET['d']) AND $_GET['d'] == "debug") {
+    echo "Время на сервере: ".date("Y-m-d H:i:s", time())."<br>";
+    echo "Время генерации токена: ".date("Y-m-d H:i:s", filectime("token.php"))."<br>";
+    $tb = explode(".", ((85000 - (time()-filectime("token.php")))/60));
+    echo "До генерации нового токена: ".$tb[0]." минут<br>";
 }
-
 
 
 
@@ -63,8 +53,6 @@ function GetCheck($token,$ya_token) {
     }
     
 }
-
-
 
 
 function YaApiDevEdd($token, $id, $v) {
