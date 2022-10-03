@@ -169,7 +169,16 @@ function TokenUP($login,$password,$id) {
 		$ftime = (time() - filectime("token.php"));
 	} 
 	
-	if(isset($ftime) AND $ftime > 85000 OR !file_exists("token.php")) {	
+	if(isset($ftime) AND $ftime > 85000 OR !file_exists("token.php")) {
+
+		if(file_exists('token.php')){
+			if(unlink('token.php')) {
+				//..
+			} else {
+				Logs("проблемы с удалением файла token.php", 1);
+			}
+		}
+		
 		$url = "https://billing.smartshell.gg/api/graphql";
 		$headers = [
 			'Content-Type: application/json',
