@@ -25,7 +25,7 @@ https://aliexpress.ru/item/1005003640070178.html<br>
 ```PHP
 $login = "7956665557"; // логин smartshell
 $password = "password"; // пароль smartshell
-$id = "9999"; // узнать свой ид клуба http://ССЫЛКА/SmartShell_Alisa.php?d=clubs
+$id = "9999"; // как узнать свой ид клуба смотри скриншот https://ibb.co/fC2m0gD
 $ya_token = "токен"; // как получить токен умного дома от яндекса смотрите http://www.youtube.com/watch?v=zHcx-TD4ZPU
 ```
 <br>
