@@ -7,25 +7,43 @@ $ya_token = "token"; // как получить токен смотрите http
 
 
 
-
-
-
 if(isset($_GET['d']) AND $_GET['d'] == "check") {
 
-	ini_set('max_execution_time', 900);
+	ini_set('max_execution_time', 120);
 
-    // Смотрим создан ли файл с токеном, если нет - создаем
     if (file_exists("token.php")) {
         require 'token.php';
     } else {
         TokenUP($login,$password,$id);
     }
 
-    // Запускаем цикл опроса состояния розеток
     for ($cycle = 1; $cycle <= 4; $cycle++) {
         GetCheck($token, $ya_token, $login, $password, $id, $cycle);
         sleep(15);
     }
+
+}
+
+
+if(isset($_GET['d']) AND $_GET['d'] == "debug") {
+
+	ini_set('max_execution_time', 120);
+
+    if (file_exists("token.php")) {
+        require 'token.php';
+    } else {
+        TokenUP($login,$password,$id);
+    }
+
+    $url = "https://api.iot.yandex.net/v1.0/user/info";
+    $headers = [
+        'authorization: Bearer '.$ya_token,
+    ];
+
+    $ya = GetCurl($url,$headers);
+
+    print_r($ya);
+
 
 }
 
@@ -44,7 +62,7 @@ function GetCheck($token, $ya_token, $login, $password, $id, $cycle) {
         // Проверка, есть ли хосты из Алисы в смартшелле, если нет - создаем их
         if(isset($pclist[$alias])) {
 
-            // Проверка, создан ли файл с токеном доступа к хосту, если нет - выводим сообщение
+            // Проверка, создан ли сайт с токеном доступа к хосту, если нет - выводим сообщение
             if(file_exists($ya['external_id'])) {
                 if($cycle%2 != 0) {
                     $tokenPc = file_get_contents($ya['external_id']);
@@ -127,6 +145,8 @@ function YaApiDev($token) {
         $ar[$d['name']]['id'] = $d['id'];
         $ar[$d['name']]['type'] = $d['capabilities']['0']['type'];
         $ar[$d['name']]['status'] = $d['capabilities']['0']['state']['value'];
+
+        $d['external_id'] = preg_replace("/[^a-zA-Z0-9]/", "", $d['external_id']);
         $ar[$d['name']]['external_id'] = $d['external_id'];
     }
     return  $ar;
@@ -239,9 +259,9 @@ function BoxAdd($token, $alias, $external_id) {
 			}
 		}
 
-		sleep(5);
-		file_put_contents($external_id, $box['data']['registerHost'], FILE_APPEND | LOCK_EX);
-		Logs("На карту клуба добавлен новый хост ".$alias, 0);
+
+	    file_put_contents($external_id, $box['data']['registerHost'], FILE_APPEND | LOCK_EX);
+        Logs("На карту клуба добавлен новый хост ".$alias, 0);
 
     } else {
         Logs("проблемы с добавление хоста", 1);
