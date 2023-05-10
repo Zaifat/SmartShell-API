@@ -361,14 +361,14 @@ function GetCurl($url,$headers,$post_fields = null) {
     if (!empty($headers))
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
+
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 1);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $timeout);
     $data = curl_exec($ch);
 
     if (curl_errno($ch)) {
-        Logs("Проблемы с curl ".curl_error($ch), 1);
+        Logs("Проблемы с curl ".curl_error($ch)." ".$url." ".var_dump($headers)." ".var_dump($post_fields), 1);
     }
 
     curl_close($ch);
@@ -377,5 +377,3 @@ function GetCurl($url,$headers,$post_fields = null) {
     $data = json_decode($data, true);
     return  $data;
 }
-
-
