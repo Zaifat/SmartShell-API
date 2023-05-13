@@ -16,7 +16,7 @@ https://aliexpress.ru/item/1005003640070178.html<br>
 ХВОХ4(набрано на кириллице)<br>
 
 3. <b>Создать приложение яндекса, и получить токен на управление оборудованием "яндекс умный дом".</b><br>
-Как это сделать смотрите тут: https://www.youtube.com/watch?v=zHcx-TD4ZPU<br>
+Как это сделать смотрите тут: https://www.youtube.com/watch?v=hv8u78VB7ks<br>
 
 4. <b>Скачать файл SmartShell_Alisa.php </b>
 
