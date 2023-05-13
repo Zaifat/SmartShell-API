@@ -2,7 +2,7 @@
 $login = "799999999"; // логин smartshell
 $password = "pass"; // пароль smartshell
 $id = "9999"; // как узнать свой ид клуба смотри скриншот https://ibb.co/fC2m0gD
-$ya_token = "token"; // как получить токен смотрите https://www.youtube.com/watch?v=zHcx-TD4ZPU
+$ya_token = "token"; // как получить токен смотрите https://www.youtube.com/watch?v=hv8u78VB7ks
 
 
 
