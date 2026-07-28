@@ -3,7 +3,7 @@ $login = "799999999"; // логин smartshell
 $password = "pass"; // пароль smartshell
 $id = "9999"; // как узнать свой ид клуба смотри скриншот https://ibb.co/fC2m0gD
 $ya_token = "token"; // как получить токен смотрите https://www.youtube.com/watch?v=hv8u78VB7ks
-
+define('UA', 'company_id='.$id.'. php-curl');
 
 
 
@@ -363,6 +363,7 @@ function GetCurl($url,$headers,$post_fields = null) {
 
 
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+	curl_setopt($ch, CURLOPT_USERAGENT, UA);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $timeout);
     $data = curl_exec($ch);
