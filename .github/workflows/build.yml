@@ -25,15 +25,26 @@ jobs:
       - name: Build
         run: |
           python build/make_icon.py
-          python -m PyInstaller --noconfirm --clean --distpath dist --workpath build/work build/SmartShellBridge.spec
-          Compress-Archive -Path dist/SmartShellBridge -DestinationPath dist/SmartShellBridge.zip
+          python -m PyInstaller --noconfirm --clean --distpath build/dist --workpath build/work build/SmartShellBridge.spec
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path build/dist/SmartShellBridge -DestinationPath dist/SmartShellBridge.zip
+      - name: Installer
+        run: |
+          $version = python -c "import sys; sys.path.insert(0,'src'); import ssbridge; print(ssbridge.__version__)"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc /Q "/DAppVersion=$version" build/installer.iss
       - uses: actions/upload-artifact@v4
         with:
           name: SmartShellBridge
-          path: dist/SmartShellBridge/
+          path: |
+            dist/SmartShellBridge-Setup-*.exe
+            dist/SmartShellBridge.zip
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/SmartShellBridge.zip
+          files: |
+            dist/SmartShellBridge-Setup-*.exe
+            dist/SmartShellBridge.zip
           generate_release_notes: true

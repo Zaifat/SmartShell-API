@@ -146,7 +146,13 @@ class Api:
             ss.host_keepalive(token)
         except Exception as e:
             journal.warning(f"Хост «{alias}» создан, но не вышел в сеть: {describe(e)}", "smartshell")
-        return {"ok": True, "host": host.to_dict()}
+        binding = None
+        if body.get("connector_id") and body.get("device_id"):
+            binding, _ = self.config.add_binding({"host_id": host.id, "host_alias": host.alias, **{
+                k: body[k] for k in ("connector_id", "device_id", "device_name") if k in body}})
+            journal.success(f"Привязка: {host.alias} → {binding['device_name'] or binding['device_id']}", "config")
+            self.engine.run_now()
+        return {"ok": True, "host": host.to_dict(), "binding": binding}
 
     def delete_virtual_host(self, q, body):
         self.config.remove_virtual_host(int(body.get("host_id")))
@@ -273,6 +279,78 @@ class Api:
                                   "invert": False, "on_in_service": False})
         return {"matches": found}
 
+    # ---------- хосты и привязки (точечные операции)
+    def get_devices_all(self, q, body):
+        """Все устройства всех включённых систем (параллельно, с кэшем 20 с)."""
+        from concurrent.futures import ThreadPoolExecutor
+        cache = getattr(self, "_dev_cache", None)
+        if cache is None:
+            cache = self._dev_cache = {}
+        confs = [c for c in self.config.connectors() if c.get("enabled", True)]
+        now = time.time()
+
+        def load(conf):
+            sig = json.dumps(conf, sort_keys=True, ensure_ascii=False)
+            hit = cache.get(conf["id"])
+            if hit and not q.get("refresh") and now - hit[0] < 20 and hit[1] == sig:
+                return hit[2]
+            res = {"id": conf["id"], "name": conf.get("name"), "type": conf.get("type"), "ok": True, "error": "", "devices": []}
+            try:
+                conn = self.engine.connector(conf["id"])
+                with conn.lock:
+                    res["devices"] = sorted([d.to_dict() for d in conn.list_devices()], key=lambda d: _natural(d["name"]))
+            except Exception as e:
+                res["ok"], res["error"] = False, describe(e)
+            cache[conf["id"]] = (time.time(), sig, res)
+            return res
+
+        if not confs:
+            return {"systems": []}
+        with ThreadPoolExecutor(max_workers=min(6, len(confs))) as ex:
+            return {"systems": list(ex.map(load, confs))}
+
+    def _check_binding_target(self, body):
+        if not self.config.connector(body.get("connector_id") or ""):
+            raise BridgeError("система умного дома не найдена")
+        if not body.get("device_id"):
+            raise BridgeError("не выбрано устройство")
+        if not (body.get("host_id") or body.get("host_alias")):
+            raise BridgeError("не выбран хост")
+
+    def post_binding_add(self, q, body):
+        self._check_binding_target(body)
+        b, created = self.config.add_binding(body)
+        if created:
+            journal.success(f"Привязка: {b['host_alias']} → {b['device_name'] or b['device_id']}", "config")
+            self.engine.run_now()
+        return {"ok": True, "binding": b, "created": created}
+
+    def post_bindings_add_many(self, q, body):
+        added = 0
+        for item in body.get("items") or []:
+            try:
+                self._check_binding_target(item)
+            except BridgeError:
+                continue
+            _, created = self.config.add_binding(item)
+            added += created
+        if added:
+            journal.success(f"Добавлено привязок: {added}", "config")
+            self.engine.run_now()
+        return {"ok": True, "added": added}
+
+    def post_binding_update(self, q, body):
+        b = self.config.update_binding(body.get("id", ""), body)
+        self.engine.run_now()
+        return {"ok": True, "binding": b}
+
+    def post_binding_delete(self, q, body):
+        b = next((x for x in self.config.bindings() if x["id"] == body.get("id")), None)
+        self.config.delete_binding(body.get("id", ""))
+        if b:
+            journal.info(f"Привязка удалена: {b.get('host_alias')} → {b.get('device_name') or b.get('device_id')}", "config")
+        return {"ok": True}
+
     # ---------- управление
     def post_engine(self, q, body):
         action = body.get("action")
@@ -335,6 +413,11 @@ ROUTES = {
     ("POST", "/api/bindings"): "post_bindings",
     ("POST", "/api/bindings/auto-match"): "post_auto_match",
     ("POST", "/api/bindings/release"): "post_binding_release",
+    ("GET", "/api/devices/all"): "get_devices_all",
+    ("POST", "/api/bindings/add"): "post_binding_add",
+    ("POST", "/api/bindings/add-many"): "post_bindings_add_many",
+    ("POST", "/api/bindings/update"): "post_binding_update",
+    ("POST", "/api/bindings/delete"): "post_binding_delete",
     ("POST", "/api/engine"): "post_engine",
     ("POST", "/api/selftest"): "post_selftest",
     ("GET", "/api/logs"): "get_logs",

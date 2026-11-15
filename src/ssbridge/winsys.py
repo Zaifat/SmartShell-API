@@ -89,14 +89,36 @@ def _find_browser() -> str | None:
     return shutil.which("msedge") or shutil.which("chrome")
 
 
+def _prepare_profile(profile: Path) -> None:
+    """Отключить в профиле окна панели менеджер паролей и автозаполнение."""
+    import json
+    prefs_file = profile / "Default" / "Preferences"
+    try:
+        prefs = json.loads(prefs_file.read_text(encoding="utf-8")) if prefs_file.exists() else {}
+    except (OSError, ValueError):
+        prefs = {}
+    prefs["credentials_enable_service"] = False
+    prefs["credentials_enable_autosignin"] = False
+    prefs.setdefault("profile", {})["password_manager_enabled"] = False
+    prefs.setdefault("autofill", {}).update({"enabled": False, "profile_enabled": False, "credit_card_enabled": False})
+    prefs.setdefault("translate", {})["enabled"] = False
+    try:
+        prefs_file.parent.mkdir(parents=True, exist_ok=True)
+        prefs_file.write_text(json.dumps(prefs), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def open_panel(url: str) -> None:
     """Открыть панель отдельным окном-приложением (Edge/Chrome) или в браузере."""
     browser = _find_browser()
     if browser:
         try:
             profile = paths.data_dir() / "ui-profile"
+            _prepare_profile(profile)
             subprocess.Popen([browser, f"--app={url}", f"--user-data-dir={profile}", "--window-size=1280,860",
-                              "--no-first-run", "--no-default-browser-check", "--disable-features=Translate"], close_fds=True)
+                              "--no-first-run", "--no-default-browser-check", "--disable-features=Translate,PasswordManagerOnboarding,AutofillServerCommunication",
+                              "--disable-save-password-bubble"], close_fds=True)
             return
         except OSError:
             pass

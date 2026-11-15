@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import paths, secrets
+from .net import BridgeError
 
 CONFIG_VERSION = 2
 SECRET_KEYS = {"password", "token", "access_secret", "secret", "api_key", "lan_pin", "telegram_token"}
@@ -220,6 +221,45 @@ class Config:
         for b in items:
             b.setdefault("id", new_id("b"))
         self.update("bindings", items)
+
+    BINDING_FIELDS = ("enabled", "off_delay", "invert", "on_in_service")
+
+    def add_binding(self, b: dict) -> tuple[dict, bool]:
+        """Добавить привязку. Возвращает (привязка, создана_ли). Дубликаты не создаются."""
+        with self._lock:
+            items = self._data.setdefault("bindings", [])
+            for x in items:
+                if (str(x.get("host_id")) == str(b.get("host_id")) and x.get("connector_id") == b.get("connector_id")
+                        and x.get("device_id") == b.get("device_id")):
+                    return copy.deepcopy(x), False
+            nb = {
+                "id": new_id("b"), "host_id": b.get("host_id"), "host_alias": b.get("host_alias", ""),
+                "connector_id": b["connector_id"], "device_id": b["device_id"], "device_name": b.get("device_name", ""),
+                "enabled": bool(b.get("enabled", True)), "off_delay": max(0, int(b.get("off_delay") or 0)),
+                "invert": bool(b.get("invert")), "on_in_service": bool(b.get("on_in_service")),
+            }
+            items.append(nb)
+            self.save()
+            return copy.deepcopy(nb), True
+
+    def update_binding(self, bid: str, changes: dict) -> dict:
+        with self._lock:
+            for x in self._data.get("bindings", []):
+                if x.get("id") == bid:
+                    for k in self.BINDING_FIELDS:
+                        if k in changes:
+                            x[k] = max(0, min(86400, int(changes[k] or 0))) if k == "off_delay" else bool(changes[k])
+                    self.save()
+                    return copy.deepcopy(x)
+        raise BridgeError("привязка не найдена")
+
+    def delete_binding(self, bid: str) -> None:
+        with self._lock:
+            before = len(self._data.get("bindings", []))
+            self._data["bindings"] = [x for x in self._data.get("bindings", []) if x.get("id") != bid]
+            if len(self._data["bindings"]) == before:
+                raise BridgeError("привязка не найдена")
+            self.save()
 
     # ---- виртуальные хосты ----
     def virtual_hosts(self) -> list[dict]:

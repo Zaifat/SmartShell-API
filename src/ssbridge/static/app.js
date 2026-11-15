@@ -26,10 +26,30 @@ const ICONS = {
   alert: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
   bolt: '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
   send: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff: '<path d="M17.9 17.9A10 10 0 0 1 12 19C5.5 19 2 12 2 12a18 18 0 0 1 4.1-5.1M9.9 5.2A9 9 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-2.2 3.2M14.1 14.1a3 3 0 1 1-4.2-4.2M2 2l20 20"/>',
+  gamepad: '<rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 11v3M5.5 12.5h3M15 12h.01M18 13h.01"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
 };
 function icon(n) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n] || ""}</svg>`; }
-function hydrateIcons(root = document) { root.querySelectorAll("i[data-i]").forEach(el => { el.innerHTML = icon(el.dataset.i); }); }
+function hydrateIcons(root = document) {
+  root.querySelectorAll("i[data-i]").forEach(el => { el.innerHTML = icon(el.dataset.i); });
+  // Секретные поля: символы скрыты через CSS, а не через type="password",
+  // поэтому браузер не предлагает «сохранить пароль». Кнопка-глаз показывает текст.
+  root.querySelectorAll("input[data-secret]:not([data-wrapped])").forEach(inp => {
+    inp.dataset.wrapped = "1";
+    const wrap = document.createElement("span");
+    wrap.className = "secret-wrap";
+    inp.parentNode.insertBefore(wrap, inp);
+    wrap.appendChild(inp);
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "reveal"; b.title = "Показать / скрыть"; b.tabIndex = -1;
+    b.innerHTML = icon("eye");
+    b.onclick = () => { inp.classList.toggle("shown"); b.innerHTML = icon(inp.classList.contains("shown") ? "eyeoff" : "eye"); };
+    wrap.appendChild(b);
+  });
+}
 
 const SYS_COLORS = { yandex: "#fc3f1d", homeassistant: "#18bcf2", tuya: "#ff4800", smartthings: "#15bfff", shelly: "#4a90d9", tasmota: "#1fa3ec",
   sonoff: "#2db8a8", mqtt: "#660066", openhab: "#e64a19", domoticz: "#3d7ab8", iobroker: "#3399cc", webhook: "#64748b" };
@@ -120,7 +140,7 @@ function askPin() {
   if (pinPromise) return pinPromise;
   pinPromise = new Promise(res => {
     const m = modal({ title: "Вход в панель", narrow: true, body: `<p class="muted">Для доступа по сети введите PIN-код, заданный в настройках программы.</p>
-      <label class="f"><span>PIN-код</span><input type="password" id="pin-in" autofocus></label><div id="pin-err"></div>`,
+      <label class="f"><span>PIN-код</span><input type="text" data-secret autocomplete="off" spellcheck="false" id="pin-in" autofocus></label><div id="pin-err"></div>`,
       foot: `<button class="btn primary" id="pin-ok">Войти</button>` });
     const go = async () => {
       const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: $("#pin-in").value }) });
@@ -247,8 +267,8 @@ function renderDashboardLive() {
         <div class="value">${st.smartshell.rpm_used}<span class="muted" style="font-size:16px"> / 20</span></div><div class="hint">за последнюю минуту (лимит API)</div></div>
     </div>
     ${st.bindings.length ? `<div class="grid g3">${tiles}</div>` :
-      `<div class="card empty">${icon("link")}<h2>Пока нет привязок</h2><p>Свяжите хосты SmartShell с розетками или устройствами умного дома.</p>
-       <div class="row" style="justify-content:center"><button class="btn primary" onclick="wizard()">Мастер настройки</button><button class="btn" onclick="go('bindings')">Перейти к привязкам</button></div></div>`}`;
+      `<div class="card empty">${icon("link")}<h2>Пока нет привязок</h2><p>Укажите, какое устройство включать на каждом хосте SmartShell.</p>
+       <div class="row" style="justify-content:center"><button class="btn primary" onclick="wizard()">Мастер настройки</button><button class="btn" onclick="go('bindings')">Привязать устройства</button></div></div>`}`;
   $("#d-run").onclick = e => busy(e.currentTarget, async () => { await api("/api/engine", { action: "run" }); toast("Проверка запущена"); setTimeout(pollState, 1500); });
   $("#d-pause").onclick = e => busy(e.currentTarget, async () => { await api("/api/engine", { action: st.paused ? "resume" : "pause" }); await pollState(); });
   $$("[data-man]", box).forEach(b => b.onclick = e => busy(e.currentTarget, async () => {
@@ -259,7 +279,7 @@ function renderDashboardLive() {
   $$("[data-release]", box).forEach(b => b.onclick = async () => { await api("/api/bindings/release", { binding_id: b.dataset.release }); toast("Автоматическое управление восстановлено"); setTimeout(pollState, 1200); });
 }
 
-// ================================================================= BINDINGS
+// ================================================================= HOSTS (привязки)
 async function ensureHosts(refresh = false) {
   const r = await api("/api/hosts" + (refresh ? "?refresh=1" : ""));
   S.hosts = r.hosts; S.groups = r.groups;
@@ -271,116 +291,276 @@ async function ensureDevices(cid, refresh = false) {
   catch (e) { S.devices[cid] = []; S.devices[cid].error = e.message; }
   return S.devices[cid];
 }
+async function loadAllDevices(refresh = false) {
+  S.allDevices = (await api("/api/devices/all" + (refresh ? "?refresh=1" : ""))).systems;
+  return S.allDevices;
+}
+
+// то же, что _norm на сервере: регистр, пробелы/дефисы, похожие латинские и русские буквы
+const LAT2CYR = { a: "а", b: "в", e: "е", k: "к", m: "м", h: "н", o: "о", p: "р", c: "с", t: "т", y: "у", x: "х" };
+function norm(s) {
+  return String(s || "").trim().toLowerCase().replace(/ё/g, "е").replace(/[abekmhopctyx]/g, ch => LAT2CYR[ch]).replace(/[\s_\-.]+/g, "");
+}
+function flatDevices() {
+  const out = [];
+  (S.allDevices || []).forEach(sys => sys.devices.forEach(d => out.push({ ...d, connector_id: sys.id, sys })));
+  return out;
+}
+function bindingsOf(hostId) { return (S.config?.bindings || []).filter(b => String(b.host_id) === String(hostId)); }
+function bindingOfDevice(cid, did) { return (S.config?.bindings || []).find(b => b.connector_id === cid && b.device_id === did); }
+function liveDeviceState(b) {
+  const st = (S.state?.bindings || []).find(x => x.id === b.id);
+  return st?.state?.actual;
+}
+function suggestions() {
+  if (!S.hosts || !S.allDevices) return [];
+  const devs = flatDevices().filter(d => !bindingOfDevice(d.connector_id, d.id));
+  const out = [];
+  S.hosts.forEach(h => {
+    if (bindingsOf(h.id).length) return;
+    const d = devs.find(x => norm(x.name) === norm(h.alias) && !out.some(o => o.device_id === x.id && o.connector_id === x.connector_id));
+    if (d) out.push({ host_id: h.id, host_alias: h.alias, connector_id: d.connector_id, device_id: d.id, device_name: d.name });
+  });
+  return out;
+}
+const hostsView = { q: "", mode: "all" };
 
 PAGES.bindings = async el => {
-  await loadConfig();
-  el.innerHTML = `<div class="head"><div><h1>Привязки</h1><p class="sub">Какое устройство включать, когда на хосте SmartShell идёт сеанс</p></div>
-    <div class="row"><button class="btn" id="b-auto">${icon("wand")}Подобрать по названиям</button><button class="btn" id="b-vhost">${icon("plus")}Хост для приставки</button>
-    <button class="btn primary" id="b-save">${icon("check")}Сохранить</button></div></div><div id="b-body"><div class="card empty">Загрузка хостов SmartShell и устройств…</div></div>`;
+  el.innerHTML = `<div class="head"><div><h1>Хосты и устройства</h1><p class="sub">Устройство включается, когда на хосте идёт сеанс, и выключается, когда сеанс заканчивается</p></div>
+    <div class="row"><button class="btn" id="h-refresh">${icon("refresh")}Обновить</button><button class="btn primary" id="h-console">${icon("gamepad")}Добавить приставку</button></div></div>
+    <div id="h-body"><div class="card empty">Загружаем хосты из SmartShell…</div></div>`;
   hydrateIcons(el);
-  let hostErr = "";
-  try { await ensureHosts(); } catch (e) { hostErr = e.message; S.hosts = S.hosts || []; }
-  const conns = S.config.connectors;
-  await Promise.all(conns.map(c => ensureDevices(c.id)));
-  if (!S.bindingsDraft) S.bindingsDraft = JSON.parse(JSON.stringify(S.config.bindings));
-  drawBindings(hostErr);
-  $("#b-save").onclick = e => busy(e.currentTarget, saveBindings);
-  $("#b-auto").onclick = e => busy(e.currentTarget, autoMatch);
-  $("#b-vhost").onclick = virtualHostDialog;
+  $("#h-refresh").onclick = e => busy(e.currentTarget, async () => { await reloadHostsPage(true); toast("Списки обновлены"); }).catch(() => {});
+  $("#h-console").onclick = () => consoleDialog();
+  await reloadHostsPage(false);
 };
 
-function drawBindings(hostErr) {
-  const box = $("#b-body");
+async function reloadHostsPage(refresh) {
+  await loadConfig();
+  S.hostsError = "";
+  const hostsP = ensureHosts(refresh).catch(e => { S.hostsError = e.message; S.hosts = S.hosts || []; });
+  const devP = loadAllDevices(refresh).catch(e => { S.allDevices = []; S.devicesError = e.message; });
+  await hostsP;
+  drawHosts();
+  await devP;
+  drawHosts();
+}
+
+function drawHosts() {
+  const box = $("#h-body");
+  if (!box) return;
   const conns = S.config.connectors;
-  if (!conns.length) {
-    box.innerHTML = `<div class="card empty">${icon("home")}<h2>Сначала добавьте систему умного дома</h2><p>Например, Яндекс Умный дом, Home Assistant или Tuya.</p><button class="btn primary" onclick="go('systems')">Добавить систему</button></div>`;
-    return;
+  const hosts = S.hosts || [];
+  if (S.hostsError && !hosts.length) {
+    box.innerHTML = `<div class="card empty">${icon("monitor")}<h2>Нет связи со SmartShell</h2><p>${esc(S.hostsError)}</p>
+      <button class="btn primary" onclick="go('smartshell')">Настроить SmartShell</button></div>`;
+    hydrateIcons(box); return;
   }
-  const hostOpts = sel => {
-    const groups = {};
-    (S.hosts || []).forEach(h => (groups[h.group] = groups[h.group] || []).push(h));
-    let html = `<option value="">— выберите хост —</option>`;
-    for (const [g, hs] of Object.entries(groups))
-      html += `<optgroup label="${esc(g)}">` + hs.map(h => `<option value="${h.id}" ${String(h.id) === String(sel) ? "selected" : ""}>${esc(h.alias)}${h.virtual ? " (приставка)" : ""}</option>`).join("") + "</optgroup>";
-    if (sel && !(S.hosts || []).some(h => String(h.id) === String(sel))) html += `<option value="${esc(sel)}" selected>Хост #${esc(sel)} (не найден)</option>`;
-    return html;
+  const sugg = suggestions();
+  const q = norm(hostsView.q);
+  const known = new Set(hosts.map(h => String(h.id)));
+  const orphans = S.config.bindings.filter(b => !known.has(String(b.host_id)));
+  const filtered = hosts.filter(h => {
+    const bound = bindingsOf(h.id).length > 0;
+    if (hostsView.mode === "bound" && !bound) return false;
+    if (hostsView.mode === "free" && bound) return false;
+    if (!q) return true;
+    return norm(h.alias).includes(q) || bindingsOf(h.id).some(b => norm(b.device_name).includes(q));
+  });
+  const groups = {};
+  filtered.forEach(h => (groups[h.group || "Без группы"] = groups[h.group || "Без группы"] || []).push(h));
+  const boundCount = hosts.filter(h => bindingsOf(h.id).length).length;
+
+  const chip = b => {
+    const st = liveDeviceState(b);
+    const sys = conns.find(c => c.id === b.connector_id);
+    const dot = st === true ? "ok" : st === false ? "" : "unk";
+    return `<div class="dev-chip ${b.enabled === false ? "off" : ""}" title="${esc(sys?.name || "")}">
+      ${sysIcon(sys?.type, 22)}<span class="dev-dot ${dot}" title="${st === true ? "включено" : st === false ? "выключено" : "состояние неизвестно"}"></span>
+      <span class="dev-name">${esc(b.device_name || b.device_id)}</span>
+      ${b.off_delay ? `<span class="tag" title="Задержка выключения">${fmtDelay(b.off_delay)}</span>` : ""}
+      ${b.on_in_service ? '<span class="tag" title="Включать в сервисном режиме">сервис</span>' : ""}
+      ${b.invert ? '<span class="tag" title="Инверсия">инверсия</span>' : ""}
+      ${b.enabled === false ? '<span class="tag">отключено</span>' : ""}
+      <button class="icon-btn" data-bset="${b.id}" title="Настройки">${icon("gear")}</button>
+      <button class="icon-btn danger" data-bdel="${b.id}" title="Отвязать">${icon("x")}</button></div>`;
   };
-  const devOpts = (cid, sel, selName) => {
-    const devs = S.devices[cid] || [];
-    let html = `<option value="">— устройство —</option>` + devs.map(d => `<option value="${esc(d.id)}" ${d.id === sel ? "selected" : ""}>${esc(d.name)}${d.room ? " · " + esc(d.room) : ""}</option>`).join("");
-    if (sel && !devs.some(d => d.id === sel)) html += `<option value="${esc(sel)}" selected>${esc(selName || sel)} (нет связи)</option>`;
-    return html;
+  const hostRow = h => {
+    const bs = bindingsOf(h.id);
+    const status = h.active ? '<span class="tag ok">идёт сеанс</span>' : h.in_service ? '<span class="tag warn">сервис</span>' : '<span class="tag">свободен</span>';
+    return `<div class="host-row ${bs.length ? "bound" : ""}">
+      <div class="host-main"><div class="host-ic ${h.virtual ? "console" : ""}">${icon(h.virtual ? "gamepad" : "monitor")}</div>
+        <div style="min-width:0"><div class="host-name">${esc(h.alias)}</div><div class="row" style="gap:6px">${status}${h.virtual ? '<span class="tag info">приставка</span>' : ""}</div></div></div>
+      <div class="host-devs">${bs.map(chip).join("") || '<span class="muted small">устройство не привязано</span>'}</div>
+      <div class="host-act"><button class="btn sm ${bs.length ? "ghost" : "primary"}" data-pick="${h.id}">${icon("plus")}${bs.length ? "Ещё" : "Привязать устройство"}</button></div></div>`;
   };
-  const rows = S.bindingsDraft.map((b, i) => `<tr data-i="${i}">
-      <td>${sw("", b.enabled !== false, "", 'data-f="enabled"')}</td>
-      <td><select data-f="host_id">${hostOpts(b.host_id)}</select></td>
-      <td><select data-f="connector_id">${conns.map(c => `<option value="${c.id}" ${c.id === b.connector_id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></td>
-      <td><select data-f="device_id">${devOpts(b.connector_id, b.device_id, b.device_name)}</select></td>
-      <td class="num"><input type="number" min="0" step="10" data-f="off_delay" value="${b.off_delay || 0}" title="Задержка выключения после окончания сеанса, секунд"></td>
-      <td><div class="stack" style="gap:4px">${sw("", b.on_in_service, "в сервисном режиме", 'data-f="on_in_service"')}${sw("", b.invert, "инверсия", 'data-f="invert"')}</div></td>
-      <td><button class="btn sm danger" data-del="${i}" title="Удалить">${icon("trash")}</button></td></tr>`).join("");
-  const devErrors = conns.filter(c => S.devices[c.id]?.error).map(c => `<div class="result err">${esc(c.name)}: ${esc(S.devices[c.id].error)}</div>`).join("");
-  box.innerHTML = `${hostErr ? `<div class="result err" style="margin-bottom:12px">SmartShell: ${esc(hostErr)}</div>` : ""}${devErrors}
-    <div class="table-wrap"><table><thead><tr><th>Вкл</th><th>Хост SmartShell</th><th>Система</th><th>Устройство</th><th>Задержка, с</th><th>Включать также</th><th></th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="7" class="empty">Привязок пока нет. Нажмите «Добавить» или «Подобрать по названиям».</td></tr>`}</tbody></table></div>
-    <div class="row" style="margin-top:12px"><button class="btn" id="b-add">${icon("plus")}Добавить привязку</button><button class="btn ghost" id="b-reload">${icon("refresh")}Обновить списки</button>
-    <span class="grow"></span><span class="small muted" id="b-dirty">${S.dirty ? "Есть несохранённые изменения" : ""}</span></div>
-    <div class="docs" style="margin-top:16px"><b>Как это работает.</b> Когда на хосте начинается сеанс — устройство включается, когда сеанс заканчивается — выключается
-    (с необязательной задержкой, например чтобы гость успел сохранить игру). «Сервисный режим» — включать устройство, когда администратор перевёл хост в сервис.
-    «Инверсия» — наоборот: включено, пока хост свободен (например, лампа «свободно»).</div>`;
+
+  box.innerHTML = `
+    ${!conns.length ? `<div class="banner info">Сначала добавьте систему умного дома, в которой находятся ваши розетки. <a href="#systems" onclick="go('systems');return false">Добавить систему →</a></div>` : ""}
+    ${(S.allDevices || []).filter(s => !s.ok).map(s => `<div class="banner">«${esc(s.name)}» недоступна: ${esc(s.error)}</div>`).join("")}
+    ${S.hostsError ? `<div class="banner">SmartShell: ${esc(S.hostsError)}</div>` : ""}
+    ${sugg.length ? `<div class="card suggest"><div class="row"><div class="sys-icon" style="background:linear-gradient(135deg,var(--accent),var(--accent2))">${icon("wand")}</div>
+      <div class="grow"><b>Нашли совпадения по названиям: ${sugg.length}</b><div class="small muted">${sugg.slice(0, 6).map(s => `${esc(s.host_alias)} → ${esc(s.device_name)}`).join(" · ")}${sugg.length > 6 ? " …" : ""}</div></div>
+      <button class="btn primary" id="h-sugg">${icon("link")}Привязать все</button></div></div>` : ""}
+    <div class="row" style="margin:6px 0 14px"><span class="search">${icon("search")}<input id="h-q" placeholder="Поиск хоста или устройства" value="${esc(hostsView.q)}"></span>
+      <div class="seg">${[["all", `Все (${hosts.length})`], ["bound", `С устройством (${boundCount})`], ["free", `Без устройства (${hosts.length - boundCount})`]]
+        .map(([k, l]) => `<button data-mode="${k}" class="${hostsView.mode === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+    ${hosts.length ? "" : `<div class="card empty">${icon("monitor")}<h2>На карте клуба нет хостов</h2><p>Для приставок без шелла нажмите «Добавить приставку».</p></div>`}
+    ${Object.entries(groups).map(([g, hs]) => `<div class="section-title">${esc(g)} · ${hs.length}</div><div class="card host-list">${hs.map(hostRow).join("")}</div>`).join("")}
+    ${hosts.length && !filtered.length ? `<div class="card empty">Ничего не найдено</div>` : ""}
+    ${orphans.length ? `<div class="section-title">Хост не найден в SmartShell</div><div class="card host-list">${orphans.map(b => `<div class="host-row">
+      <div class="host-main"><div class="host-ic">${icon("alert")}</div><div><div class="host-name">${esc(b.host_alias || "#" + b.host_id)}</div><span class="tag err">удалён или переименован</span></div></div>
+      <div class="host-devs">${chip(b)}</div><div class="host-act"></div></div>`).join("")}</div>` : ""}`;
   hydrateIcons(box);
-  const mark = () => { S.dirty = true; $("#b-dirty").textContent = "Есть несохранённые изменения"; };
-  $$("tbody tr[data-i]", box).forEach(tr => {
-    const i = +tr.dataset.i, b = S.bindingsDraft[i];
-    $$("[data-f]", tr).forEach(inp => inp.onchange = async () => {
-      const f = inp.dataset.f;
-      if (inp.type === "checkbox") b[f] = inp.checked;
-      else if (f === "off_delay") b[f] = +inp.value || 0;
-      else b[f] = inp.value;
-      if (f === "host_id") b.host_alias = (S.hosts.find(h => String(h.id) === inp.value) || {}).alias || "";
-      if (f === "device_id") b.device_name = (S.devices[b.connector_id] || []).find(d => d.id === inp.value)?.name || "";
-      if (f === "connector_id") { b.device_id = ""; b.device_name = ""; await ensureDevices(b.connector_id); drawBindings(); }
-      mark();
+
+  const qi = $("#h-q");
+  qi.oninput = () => { hostsView.q = qi.value; const pos = qi.selectionStart; drawHosts(); const n = $("#h-q"); n.focus(); n.setSelectionRange(pos, pos); };
+  $$("[data-mode]", box).forEach(b => b.onclick = () => { hostsView.mode = b.dataset.mode; drawHosts(); });
+  const sb = $("#h-sugg");
+  if (sb) sb.onclick = e => busy(e.currentTarget, async () => {
+    const r = await api("/api/bindings/add-many", { items: sugg });
+    toast(`Привязано устройств: ${r.added}`, "ok");
+    await loadConfig(); drawHosts();
+  }).catch(() => {});
+  $$("[data-pick]", box).forEach(b => b.onclick = () => {
+    const h = hosts.find(x => String(x.id) === b.dataset.pick);
+    devicePicker({ title: `Устройство для «${esc(h.alias)}»`, hint: h.alias, onPick: async d => {
+      await api("/api/bindings/add", { host_id: h.id, host_alias: h.alias, connector_id: d.connector_id, device_id: d.id, device_name: d.name });
+      toast(`${h.alias} → ${d.name}`, "ok");
+      await loadConfig(); drawHosts();
+    } });
+  });
+  $$("[data-bset]", box).forEach(b => b.onclick = () => bindingSettings(S.config.bindings.find(x => x.id === b.dataset.bset)));
+  $$("[data-bdel]", box).forEach(b => b.onclick = async () => {
+    const bd = S.config.bindings.find(x => x.id === b.dataset.bdel);
+    if (!(await confirmBox(`Отвязать «${esc(bd.device_name || bd.device_id)}» от хоста «${esc(bd.host_alias)}»? Программа перестанет управлять этим устройством.`, "Отвязать"))) return;
+    await api("/api/bindings/delete", { id: bd.id });
+    toast("Отвязано"); await loadConfig(); drawHosts();
+  });
+}
+
+function fmtDelay(s) { return s >= 60 ? `${Math.round(s / 6) / 10} мин` : `${s} с`; }
+
+// ---- выбор устройства (общий для «Привязать» и «Добавить приставку»)
+function devicePicker({ title, hint, onPick }) {
+  const m = modal({ title, body: `<div class="row" style="margin-bottom:12px"><span class="search grow">${icon("search")}<input id="dp-q" placeholder="Поиск устройства" autofocus></span>
+      <button class="btn" id="dp-refresh">${icon("refresh")}Обновить</button></div><div id="dp-list"><div class="empty">Загрузка устройств…</div></div>` });
+  const draw = () => {
+    const list = $("#dp-list", m.el);
+    if (!list) return;
+    if (!(S.config.connectors || []).length) {
+      list.innerHTML = `<div class="empty">${icon("home")}<p>Не подключено ни одной системы умного дома.</p><button class="btn primary" id="dp-add">Добавить систему</button></div>`;
+      hydrateIcons(list);
+      $("#dp-add", list).onclick = () => { m.close(); go("systems"); setTimeout(() => addSystemDialog(), 300); };
+      return;
+    }
+    const q = norm($("#dp-q", m.el).value);
+    const all = flatDevices().filter(d => !q || norm(d.name).includes(q) || norm(d.room).includes(q));
+    const best = hint ? all.filter(d => norm(d.name) === norm(hint) || (norm(hint) && norm(d.name).includes(norm(hint)))) : [];
+    const item = d => {
+      const used = bindingOfDevice(d.connector_id, d.id);
+      return `<div class="pick" data-c="${esc(d.connector_id)}" data-d="${esc(d.id)}">${sysIcon(d.sys.type, 30)}
+        <div class="grow" style="min-width:0"><div class="pick-name">${esc(d.name)}</div><div class="small muted">${esc([d.sys.name, d.room, d.kind].filter(Boolean).join(" · "))}</div></div>
+        ${used ? `<span class="tag warn">уже у «${esc(used.host_alias)}»</span>` : ""}
+        ${!d.online ? '<span class="tag err">не в сети</span>' : d.state === true ? '<span class="tag ok">вкл</span>' : d.state === false ? '<span class="tag">выкл</span>' : ""}</div>`;
+    };
+    let html = "";
+    if (best.length) html += `<div class="section-title">Подходят по названию</div>${best.map(item).join("")}`;
+    (S.allDevices || []).forEach(sys => {
+      // свободные устройства — сверху, уже привязанные к другим хостам — в конце
+      const ds = all.filter(d => d.connector_id === sys.id && !best.includes(d))
+        .sort((a, b) => (!!bindingOfDevice(a.connector_id, a.id)) - (!!bindingOfDevice(b.connector_id, b.id)));
+      if (!sys.ok) html += `<div class="section-title">${esc(sys.name)}</div><div class="result err">${esc(sys.error)}</div>`;
+      else if (ds.length) html += `<div class="section-title">${esc(sys.name)} · ${ds.length}</div>${ds.map(item).join("")}`;
     });
-  });
-  $$("[data-del]", box).forEach(btn => btn.onclick = () => { S.bindingsDraft.splice(+btn.dataset.del, 1); S.dirty = true; drawBindings(); });
-  $("#b-add").onclick = () => { S.bindingsDraft.push({ enabled: true, connector_id: conns[0].id, off_delay: 0 }); S.dirty = true; drawBindings(); };
-  $("#b-reload").onclick = e => busy(e.currentTarget, async () => { await ensureHosts(true); await Promise.all(conns.map(c => ensureDevices(c.id, true))); drawBindings(); toast("Списки обновлены"); });
+    if (!html) html = `<div class="empty">${q ? "Ничего не найдено" : "В подключённых системах нет устройств с функцией вкл/выкл"}</div>`;
+    list.innerHTML = html;
+    hydrateIcons(list);
+    $$(".pick", list).forEach(p => p.onclick = async () => {
+      const d = flatDevices().find(x => x.connector_id === p.dataset.c && x.id === p.dataset.d);
+      p.classList.add("busy");
+      try { await onPick(d); m.close(); } catch (e) { toast(e.message, "err"); p.classList.remove("busy"); }
+    });
+  };
+  $("#dp-q", m.el).oninput = draw;
+  $("#dp-refresh", m.el).onclick = e => busy(e.currentTarget, async () => { await loadAllDevices(true); draw(); }).catch(() => {});
+  if (S.allDevices) draw();
+  loadAllDevices(false).then(draw).catch(e => { $("#dp-list", m.el).innerHTML = `<div class="result err">${esc(e.message)}</div>`; });
+  return m;
 }
 
-async function saveBindings() {
-  const incomplete = S.bindingsDraft.filter(b => !b.host_id || !b.device_id);
-  if (incomplete.length && !(await confirmBox(`Незаполненных строк: ${incomplete.length}. Они не будут сохранены. Продолжить?`, "Сохранить"))) return;
-  const r = await api("/api/bindings", { bindings: S.bindingsDraft });
-  S.dirty = false; S.bindingsDraft = null;
-  toast(`Сохранено привязок: ${r.count}`, "ok");
-  await loadConfig(); S.bindingsDraft = JSON.parse(JSON.stringify(S.config.bindings)); drawBindings();
+// ---- «Добавить приставку»: выбрать устройство → создать хост с тем же названием и привязать
+function consoleDialog() {
+  const pickGroup = () => (S.groups.find(g => /консол|приставк|playstation|xbox|ps\d|vr|sim/i.test(g.title)) || S.groups[0] || {}).id;
+  let chosen = null, autoName = true;
+  const m = modal({ title: "Добавить приставку", narrow: true, body: `
+    <p class="muted" style="margin-top:0">Для приставок, ТВ, VR, симуляторов — всего, на чём нет шелла SmartShell. Программа создаст хост на карте клуба,
+      будет держать его «в сети» и включать выбранное устройство, когда администратор запустит сеанс.</p>
+    <div class="stack">
+      <div class="f"><span class="muted">1. Устройство (розетка), которое включать</span>
+        <div id="cd-dev" class="pick empty-pick">${icon("plus")}<span>Выбрать устройство</span></div></div>
+      <label class="f"><span>2. Название хоста на карте клуба <b>*</b></span><input id="cd-name" placeholder="PS5-1"></label>
+      <label class="f"><span>3. Группа хостов</span><select id="cd-group">${S.groups.map(g => `<option value="${g.id}" ${g.id === pickGroup() ? "selected" : ""}>${esc(g.title)}</option>`).join("")}</select></label>
+    </div>`,
+    foot: `<button class="btn" data-x>Отмена</button><button class="btn primary" id="cd-ok">${icon("check")}Создать</button>` });
+  hydrateIcons(m.el);
+  $("[data-x]", m.el).onclick = m.close;
+  const nameIn = $("#cd-name", m.el);
+  nameIn.oninput = () => { autoName = !nameIn.value; };
+  const drawChosen = () => {
+    const box = $("#cd-dev", m.el);
+    if (!chosen) return;
+    box.className = "pick";
+    box.innerHTML = `${sysIcon(chosen.sys.type, 30)}<div class="grow"><div class="pick-name">${esc(chosen.name)}</div><div class="small muted">${esc(chosen.sys.name)}</div></div><span class="small muted">изменить</span>`;
+  };
+  $("#cd-dev", m.el).onclick = () => devicePicker({ title: "Устройство для приставки", onPick: async d => {
+    chosen = d; drawChosen();
+    if (autoName || !nameIn.value) { nameIn.value = d.name; autoName = true; }
+  } });
+  if (!S.groups.length) ensureHosts().then(() => { $("#cd-group", m.el).innerHTML = S.groups.map(g => `<option value="${g.id}" ${g.id === pickGroup() ? "selected" : ""}>${esc(g.title)}</option>`).join(""); }).catch(() => {});
+  $("#cd-ok", m.el).onclick = e => busy(e.currentTarget, async () => {
+    const alias = nameIn.value.trim();
+    if (!alias) { nameIn.focus(); throw new Error("Введите название хоста"); }
+    const body = { alias, group_id: +$("#cd-group", m.el).value || undefined };
+    if (chosen) Object.assign(body, { connector_id: chosen.connector_id, device_id: chosen.id, device_name: chosen.name });
+    const r = await api("/api/hosts/virtual", body);
+    toast(chosen ? `Хост «${r.host.alias}» создан и привязан к «${chosen.name}»` : `Хост «${r.host.alias}» создан`, "ok");
+    m.close();
+    if (S.page === "bindings") await reloadHostsPage(true);
+  }).catch(() => {});
 }
 
-async function autoMatch() {
-  const r = await api("/api/bindings/auto-match", {});
-  if (!r.matches.length) { toast("Совпадений названий не найдено. Назовите устройства так же, как хосты в SmartShell, или привяжите вручную."); return; }
-  const existing = new Set(S.bindingsDraft.map(b => b.connector_id + "|" + b.device_id));
-  const fresh = r.matches.filter(m => !existing.has(m.connector_id + "|" + m.device_id));
-  S.bindingsDraft.push(...fresh);
-  S.dirty = true; drawBindings();
-  toast(`Найдено совпадений: ${fresh.length}. Проверьте и нажмите «Сохранить».`, "ok");
-}
-
-function virtualHostDialog() {
-  const m = modal({ title: "Хост для приставки", narrow: true, body: `
-    <p class="muted">Для приставок (PS5, Xbox, VR и т.п.), на которых нет шелла SmartShell. Программа создаст хост на карте клуба
-    и будет поддерживать его «в сети», чтобы администратор мог запускать на нём сеансы.</p>
-    <div class="stack"><label class="f"><span>Название хоста <b>*</b></span><input id="vh-alias" placeholder="PS5-1"></label>
-    <label class="f"><span>Группа</span><select id="vh-group">${S.groups.map(g => `<option value="${g.id}">${esc(g.title)}</option>`).join("")}</select></label></div>
-    <div class="docs" style="margin-top:14px">Удобно назвать хост так же, как розетку в умном доме — тогда привязка подберётся автоматически.</div>`,
-    foot: `<button class="btn" data-close2>Отмена</button><button class="btn primary" id="vh-ok">Создать</button>` });
-  $("[data-close2]", m.el).onclick = m.close;
-  $("#vh-ok").onclick = e => busy(e.currentTarget, async () => {
-    const r = await api("/api/hosts/virtual", { alias: $("#vh-alias").value, group_id: +$("#vh-group").value });
-    toast(`Хост «${r.host.alias}» создан`, "ok");
-    m.close(); await ensureHosts(true); drawBindings();
-  });
+// ---- настройки привязки
+function bindingSettings(b) {
+  const presets = [[0, "Сразу"], [30, "30 секунд"], [60, "1 минута"], [120, "2 минуты"], [300, "5 минут"], [600, "10 минут"]];
+  const custom = !presets.some(p => p[0] === (b.off_delay || 0));
+  const m = modal({ title: `${esc(b.host_alias)} → ${esc(b.device_name || b.device_id)}`, narrow: true, body: `<div class="stack">
+    <label class="f"><span>Выключать после окончания сеанса</span><select id="bs-delay">${presets.map(([v, l]) => `<option value="${v}" ${!custom && v === (b.off_delay || 0) ? "selected" : ""}>${l}</option>`).join("")}
+      <option value="custom" ${custom ? "selected" : ""}>Своя задержка…</option></select>
+      <input type="number" min="0" id="bs-custom" class="${custom ? "" : "hidden"}" value="${b.off_delay || 0}" placeholder="секунд">
+      <span class="help">Задержка даёт гостю время сохранить игру. Если сеанс продлят — устройство не выключится.</span></label>
+    ${sw("bs-service", b.on_in_service, "Включать, когда хост в сервисном режиме")}
+    ${sw("bs-invert", b.invert, "Инверсия: включено, пока хост свободен (например, лампа «свободно»)")}
+    ${sw("bs-enabled", b.enabled !== false, "Управлять этим устройством")}
+    <div class="docs"><div class="row"><span class="grow">Проверить устройство:</span><button class="btn sm" data-t="1">Вкл</button><button class="btn sm" data-t="0">Выкл</button></div>
+      <div class="small" style="margin-top:6px">После ручной проверки автоуправление приостанавливается на 5 минут.</div></div></div>`,
+    foot: `<button class="btn danger" id="bs-del" style="margin-right:auto">${icon("trash")}Отвязать</button><button class="btn primary" id="bs-ok">${icon("check")}Готово</button>` });
+  const sel = $("#bs-delay", m.el), cin = $("#bs-custom", m.el);
+  sel.onchange = () => cin.classList.toggle("hidden", sel.value !== "custom");
+  $$("[data-t]", m.el).forEach(t => t.onclick = e => busy(e.currentTarget, async () => {
+    await api("/api/devices/set", { binding_id: b.id, on: t.dataset.t === "1" });
+    toast(t.dataset.t === "1" ? "Включено" : "Выключено", "ok");
+  }).catch(() => {}));
+  $("#bs-del", m.el).onclick = async () => {
+    await api("/api/bindings/delete", { id: b.id });
+    toast("Отвязано"); m.close(); await loadConfig(); drawHosts();
+  };
+  $("#bs-ok", m.el).onclick = e => busy(e.currentTarget, async () => {
+    const delay = sel.value === "custom" ? Math.max(0, +cin.value || 0) : +sel.value;
+    await api("/api/bindings/update", { id: b.id, off_delay: delay, on_in_service: $("#bs-service", m.el).checked,
+      invert: $("#bs-invert", m.el).checked, enabled: $("#bs-enabled", m.el).checked });
+    toast("Сохранено", "ok"); m.close(); await loadConfig(); drawHosts();
+  }).catch(() => {});
 }
 
 // ================================================================= SYSTEMS
@@ -431,11 +611,12 @@ function fieldHtml(f, val) {
       <tbody>${rows.map(r => tableRow(f, r)).join("")}</tbody></table></div>
       <div><button class="btn sm" type="button" data-addrow="${f.key}">${icon("plus")}Добавить устройство</button></div>${help}</div>`;
   }
-  const type = f.type === "password" ? "password" : f.type === "number" ? "number" : "text";
-  return `<label class="f"><span>${esc(f.label)}${req}</span><input type="${type}" data-key="${f.key}" value="${esc(v)}" placeholder="${esc(f.placeholder || "")}" autocomplete="off">${help}</label>`;
+  const type = f.type === "number" ? "number" : "text";
+  const secret = f.type === "password" ? ' data-secret spellcheck="false"' : "";
+  return `<label class="f"><span>${esc(f.label)}${req}</span><input type="${type}"${secret} data-key="${f.key}" value="${esc(v)}" placeholder="${esc(f.placeholder || "")}" autocomplete="off">${help}</label>`;
 }
 function tableRow(f, r) {
-  return `<tr>${f.columns.map(c => `<td${c.type === "number" ? ' class="num"' : ""}><input type="${c.type === "number" ? "number" : c.type === "password" ? "password" : "text"}" data-col="${c.key}" value="${esc(r[c.key] ?? c.default ?? "")}" placeholder="${esc(c.placeholder || "")}"></td>`).join("")}
+  return `<tr>${f.columns.map(c => `<td${c.type === "number" ? ' class="num"' : ""}><input type="${c.type === "number" ? "number" : "text"}"${c.type === "password" ? " data-secret" : ""} autocomplete="off" data-col="${c.key}" value="${esc(r[c.key] ?? c.default ?? "")}" placeholder="${esc(c.placeholder || "")}"></td>`).join("")}
     <td><button class="btn sm danger" type="button" data-delrow>${icon("trash")}</button></td></tr>`;
 }
 function collectFields(root, fields) {
@@ -558,7 +739,7 @@ PAGES.smartshell = async el => {
     <div class="card"><h2>Хосты для приставок</h2>
       ${vh.length ? `<div class="table-wrap"><table><thead><tr><th>Хост</th><th>ID</th><th></th></tr></thead><tbody>${vh.map(v => `<tr><td><b>${esc(v.alias)}</b></td><td class="muted">${v.host_id}</td>
         <td style="text-align:right"><button class="btn sm danger" data-vdel="${v.host_id}">${icon("trash")}Забыть</button></td></tr>`).join("")}</tbody></table></div>`
-        : `<p class="muted">Нет хостов, созданных программой. Их можно создать в разделе «Привязки» → «Хост для приставки».</p>`}
+        : `<p class="muted">Нет хостов, созданных программой. Их можно создать в разделе «Хосты» → «Добавить приставку».</p>`}
       <p class="small muted">Программа держит эти хосты «в сети» на карте клуба. Если вы использовали старый PHP-скрипт — удалите старые хосты на карте клуба и создайте их здесь заново.</p></div>
     </div>`;
   bindSmartshellForm(el, "#ss-result");
@@ -571,7 +752,7 @@ PAGES.smartshell = async el => {
 
 function smartshellFields(ss) {
   return `<label class="f"><span>Логин (телефон) <b>*</b></span><input id="ss-login" value="${esc(ss.login)}" placeholder="79001234567" autocomplete="off"></label>
-    <label class="f"><span>Пароль <b>*</b></span><input id="ss-pass" type="password" value="${esc(ss.password)}" autocomplete="new-password"></label>
+    <label class="f"><span>Пароль <b>*</b></span><input id="ss-pass" type="text" data-secret autocomplete="off" spellcheck="false" value="${esc(ss.password)}"></label>
     <label class="f"><span>Клуб <b>*</b></span><div class="row" style="flex-wrap:nowrap"><select id="ss-club">${ss.company_id ? `<option value="${esc(ss.company_id)}">${esc(ss.club_name || "Клуб #" + ss.company_id)}</option>` : `<option value="">— нажмите «Найти» —</option>`}</select>
       <button class="btn" type="button" id="ss-find">Найти</button></div><span class="help">Клубы загружаются по логину и паролю — ID вводить не нужно</span></label>
     <label class="f"><span>ID клуба (вручную)</span><input id="ss-cid" value="${esc(ss.company_id)}" placeholder="заполнится автоматически"></label>`;
@@ -689,12 +870,12 @@ PAGES.settings = async el => {
     </div></div>
     <div class="card"><h2>Доступ к панели</h2><div class="form">
       <label class="f"><span>Порт панели</span><input type="number" id="g-port" value="${g.web_port}"></label>
-      <label class="f"><span>PIN-код для доступа по сети</span><input type="password" id="g-pin" value="${esc(g.lan_pin)}" autocomplete="new-password"></label>
+      <label class="f"><span>PIN-код для доступа по сети</span><input type="text" data-secret autocomplete="off" spellcheck="false" id="g-pin" value="${esc(g.lan_pin)}"></label>
       <div class="f full">${sw("g-lan", g.allow_lan, "Разрешить открывать панель с других компьютеров/телефона в сети клуба (требуется PIN-код)")}</div>
     </div><div class="small muted" style="margin-top:8px">Изменение порта и доступа по сети применяется после перезапуска программы.</div></div>
     <div class="row"><button class="btn primary" id="g-save">${icon("check")}Сохранить настройки</button></div>
     <div class="card"><h2>Уведомления в Telegram</h2><div class="form">
-      <label class="f"><span>Токен бота</span><input type="password" id="n-token" value="${esc(n.telegram_token)}" placeholder="123456:ABC..."><span class="help">Создайте бота у @BotFather</span></label>
+      <label class="f"><span>Токен бота</span><input type="text" data-secret autocomplete="off" spellcheck="false" id="n-token" value="${esc(n.telegram_token)}" placeholder="123456:ABC..."><span class="help">Создайте бота у @BotFather</span></label>
       <label class="f"><span>Chat ID</span><input id="n-chat" value="${esc(n.telegram_chat_id)}" placeholder="123456789"><span class="help">Узнать можно у @userinfobot (для группы — с минусом)</span></label>
       <div class="f full">${sw("n-err", n.on_errors, "Сообщать о сбоях и восстановлении")}</div>
       <div class="f full">${sw("n-sw", n.on_switch, "Сообщать о каждом включении/выключении устройств")}</div>

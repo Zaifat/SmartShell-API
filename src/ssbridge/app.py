@@ -35,6 +35,8 @@ class App:
         # Автозапуск прописывается только если пользователь сам его включил
         # (и обновляется путь, если exe перенесли в другую папку).
         try:
+            if winsys.autostart_enabled() and not self.config.get("general", "autostart", False):
+                self.config.update("general", {"autostart": True})  # включён установщиком
             if self.config.get("general", "autostart", False) and not winsys.autostart_current():
                 winsys.set_autostart(True)
         except Exception as e:

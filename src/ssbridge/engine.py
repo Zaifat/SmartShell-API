@@ -438,7 +438,7 @@ class Engine:
             self._keepalive_ts[hid] = now
             prob = self._vh_problem.setdefault(hid, journal.Problem(f"Хост {vh.get('alias')}", "smartshell", self._on_problem))
             if hid not in self.hosts:
-                prob.fail(f"Виртуальный хост «{vh.get('alias')}» удалён с карты клуба. Удалите его в разделе «Привязки» или создайте заново", "WARNING")
+                prob.fail(f"Виртуальный хост «{vh.get('alias')}» удалён с карты клуба. Удалите его в разделе «SmartShell» → «Хосты для приставок» или создайте заново", "WARNING")
                 continue
             try:
                 self.ss.host_keepalive(vh.get("token", ""))
