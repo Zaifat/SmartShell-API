@@ -777,6 +777,18 @@ function applyTheme(t) {
   try { localStorage.setItem("ssb-theme", t); } catch (e) { /* ignore */ }
 }
 
+// Внешние ссылки открываем в браузере по умолчанию (через программу),
+// а не внутри окна панели. Если программа недоступна — обычным способом.
+document.addEventListener("click", e => {
+  const a = e.target.closest("a[href]");
+  if (!a) return;
+  let url;
+  try { url = new URL(a.getAttribute("href"), location.href); } catch (err) { return; }
+  if (url.origin === location.origin || !/^https?:$/.test(url.protocol)) return;
+  e.preventDefault();
+  api("/api/open-url", { url: url.href }).catch(() => window.open(url.href, "_blank", "noopener"));
+});
+
 (function init() {
   let theme = null;
   try { theme = localStorage.getItem("ssb-theme"); } catch (e) { /* ignore */ }

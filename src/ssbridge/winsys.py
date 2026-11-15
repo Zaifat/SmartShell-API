@@ -103,6 +103,17 @@ def open_panel(url: str) -> None:
     webbrowser.open(url)
 
 
+def open_url(url: str) -> None:
+    """Открыть ссылку в браузере по умолчанию (только http/https)."""
+    from urllib.parse import urlparse
+    if urlparse(url).scheme not in ("http", "https"):
+        raise ValueError("можно открывать только ссылки http/https")
+    if sys.platform == "win32":
+        os.startfile(url)  # noqa: S606 — браузер, назначенный в Windows по умолчанию
+    else:
+        webbrowser.open(url)
+
+
 def open_folder(path: Path) -> None:
     if sys.platform == "win32":
         os.startfile(str(path))  # noqa: S606

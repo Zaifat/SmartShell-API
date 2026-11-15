@@ -291,6 +291,10 @@ class Api:
         after = int(q.get("after", 0) or 0)
         return {"items": journal.ring.since(after, q.get("level"), int(q.get("limit", 500) or 500))}
 
+    def post_open_url(self, q, body):
+        winsys.open_url(str(body.get("url") or ""))
+        return {"ok": True}
+
     def post_open_logs(self, q, body):
         winsys.open_folder(paths.logs_dir())
         return {"ok": True}
@@ -335,6 +339,7 @@ ROUTES = {
     ("POST", "/api/selftest"): "post_selftest",
     ("GET", "/api/logs"): "get_logs",
     ("POST", "/api/logs/open"): "post_open_logs",
+    ("POST", "/api/open-url"): "post_open_url",
 }
 
 
@@ -461,6 +466,9 @@ class Server:
                         return self._json(401, {"error": "Требуется PIN-код", "need_pin": True})
                     if method == "POST" and self.headers.get("X-SSB") != "1":
                         return self._json(403, {"error": "forbidden"})
+                    if path == "/api/open-url" and not self._is_local_client():
+                        # с телефона/другого ПК ссылка откроется на их устройстве
+                        return self._json(403, {"error": "только для локального окна"})
                     name = ROUTES.get((method, path))
                     if not name:
                         return self._json(404, {"error": "not found"})

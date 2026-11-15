@@ -86,3 +86,13 @@ def test_norm_matches_mixed_alphabets():
     assert _norm("PS5-1") == _norm("ps5 1")
     assert _norm("ХВОХ") == _norm("XBOX")  # кириллица vs латиница
     assert _norm("ПС4") != _norm("ПС5")
+
+
+def test_open_url_only_http(server, monkeypatch):
+    import os
+    opened = []
+    monkeypatch.setattr(os, "startfile", lambda u: opened.append(u), raising=False)
+    st, _ = req(server, "POST", "/api/open-url", {"url": "https://smartshell.gg"}, {"X-SSB": "1"})
+    assert st == 200 and opened == ["https://smartshell.gg"]
+    st, _ = req(server, "POST", "/api/open-url", {"url": "file:///C:/Windows/system32/calc.exe"}, {"X-SSB": "1"})
+    assert st == 400 and len(opened) == 1
