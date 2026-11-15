@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartShell Bridge</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="icon.svg" alt="" width="34" height="34">
+      <div><div class="brand-name">SmartShell Bridge</div><div class="brand-sub" id="version">v2</div></div>
+    </div>
+    <nav id="nav">
+      <a data-page="dashboard" class="active"><i data-i="grid"></i><span>Обзор</span></a>
+      <a data-page="bindings"><i data-i="link"></i><span>Привязки</span></a>
+      <a data-page="systems"><i data-i="home"></i><span>Умный дом</span></a>
+      <a data-page="smartshell"><i data-i="monitor"></i><span>SmartShell</span></a>
+      <a data-page="logs"><i data-i="list"></i><span>Журнал</span><b class="badge" id="log-badge" hidden></b></a>
+      <a data-page="diag"><i data-i="check"></i><span>Диагностика</span></a>
+      <a data-page="settings"><i data-i="gear"></i><span>Настройки</span></a>
+    </nav>
+    <div class="side-foot">
+      <div class="status-pill" id="status-pill"><span class="dot"></span><span id="status-text">Подключение…</span></div>
+      <button class="btn ghost sm" id="theme-toggle" title="Тема"><i data-i="moon"></i></button>
+    </div>
+  </aside>
+  <main>
+    <div class="banner" id="banner" hidden></div>
+    <section id="page"></section>
+  </main>
+</div>
+<div id="modal-root"></div>
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>

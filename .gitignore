@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/work/
+build/app.ico
+dist/
+data/
+portable.txt

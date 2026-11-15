@@ -1,0 +1,4 @@
+requests>=2.32
+pystray>=0.19.5
+pillow>=11.0
+paho-mqtt>=2.1
