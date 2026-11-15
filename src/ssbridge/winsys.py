@@ -220,6 +220,12 @@ def close_panel_windows() -> int:
     return len(wins)
 
 
+def message_box(text: str, title: str) -> None:
+    if sys.platform == "win32" and not os.environ.get("SSBRIDGE_NO_MSGBOX"):
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, text, title, 0x40)  # MB_ICONINFORMATION
+
+
 def allow_foreground() -> None:
     """Разрешить другому процессу (первой копии) вывести окно на передний план."""
     if sys.platform == "win32":

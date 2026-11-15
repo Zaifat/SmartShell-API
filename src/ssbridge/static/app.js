@@ -31,6 +31,7 @@ const ICONS = {
   gamepad: '<rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 11v3M5.5 12.5h3M15 12h.01M18 13h.01"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
 };
 function icon(n) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n] || ""}</svg>`; }
 function hydrateIcons(root = document) {
@@ -71,7 +72,7 @@ async function api(path, body, method) {
   try { r = await fetch(path, opt); }
   catch (e) { throw new Error("Нет связи с программой. Убедитесь, что SmartShell Bridge запущен."); }
   const data = await r.json().catch(() => ({}));
-  if (r.status === 401 && data.need_pin) { await askPin(); return api(path, body, method); }
+  if (r.status === 401 && data.need_pin) { await askPin(data.mode); return api(path, body, method); }
   if (!r.ok) throw new Error(data.error || `Ошибка ${r.status}`);
   return data;
 }
@@ -136,19 +137,32 @@ function confirmBox(text, okLabel = "Удалить") {
 }
 
 let pinPromise = null;
-function askPin() {
+// Экран входа: пароль на вход в программу или PIN-код для доступа по сети
+function askPin(mode = "pin") {
   if (pinPromise) return pinPromise;
   pinPromise = new Promise(res => {
-    const m = modal({ title: "Вход в панель", narrow: true, body: `<p class="muted">Для доступа по сети введите PIN-код, заданный в настройках программы.</p>
-      <label class="f"><span>PIN-код</span><input type="text" data-secret autocomplete="off" spellcheck="false" id="pin-in" autofocus></label><div id="pin-err"></div>`,
-      foot: `<button class="btn primary" id="pin-ok">Войти</button>` });
-    const go = async () => {
-      const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: $("#pin-in").value }) });
-      if (r.ok) { m.el.remove(); pinPromise = null; res(); }
-      else $("#pin-err").innerHTML = `<div class="result err">Неверный PIN-код</div>`;
+    const pw = mode === "password";
+    const box = $("#login"), inp = $("#login-in"), err = $("#login-err");
+    $("#login-title").textContent = pw ? "Вход в программу" : "Вход в панель";
+    $("#login-hint").textContent = pw ? "Программа защищена паролем" : "Для доступа по сети введите PIN-код из настроек программы";
+    $("#login-forgot").hidden = !pw;
+    inp.placeholder = pw ? "Пароль" : "PIN-код";
+    inp.value = ""; err.innerHTML = "";
+    box.hidden = false;
+    setTimeout(() => inp.focus(), 50);
+    $("#login-form").onsubmit = async e => {
+      e.preventDefault();
+      const btn = $("#login-ok");
+      btn.classList.add("loading");
+      try {
+        const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: inp.value }) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) { box.hidden = true; pinPromise = null; res(); }
+        else { err.innerHTML = `<div class="result err">${esc(d.error || "Неверный пароль")}</div>`; inp.select(); }
+      } catch (e2) { err.innerHTML = `<div class="result err">Нет связи с программой</div>`; }
+      finally { btn.classList.remove("loading"); }
+      return false;
     };
-    $("#pin-ok").onclick = go;
-    $("#pin-in").onkeydown = e => { if (e.key === "Enter") go(); };
   });
   return pinPromise;
 }
@@ -186,6 +200,7 @@ async function pollState() {
     if (!st.wizard_done && !S.wizardShown) { S.wizardShown = true; wizard(); }
     S.fails = 0;
     $("#closed").hidden = true;
+    $("#app-lock").hidden = !st.password_set;
   } catch (e) {
     $("#status-pill .dot").className = "dot error";
     $("#status-text").textContent = "Нет связи с программой";
@@ -987,9 +1002,21 @@ PAGES.settings = async el => {
       <div class="f full">${sw("g-auto", S.state?.autostart ?? g.autostart, "Запускать вместе с Windows")}</div>
       <div class="f full">${sw("g-min", g.start_minimized, "При автозапуске — сразу сворачивать в трей")}</div>
     </div></div>
+    <div class="card" id="pw-card"><h2>Пароль на вход ${g.password_set ? '<span class="tag ok">включён</span>' : '<span class="tag">не задан</span>'}</h2>
+      <p class="muted" style="margin-top:0">${g.password_set
+        ? "Открыть программу можно только по паролю — и на этом компьютере, и по сети. В меню значка в трее остаются только «Открыть панель» и состояние."
+        : "Задайте пароль, чтобы посторонние (например, администраторы смены) не могли менять настройки и отключать синхронизацию."}</p>
+      <div class="form">
+        ${g.password_set ? `<label class="f"><span>Текущий пароль</span><input type="text" data-secret autocomplete="off" spellcheck="false" id="pw-cur"></label>` : ""}
+        <label class="f"><span>${g.password_set ? "Новый пароль" : "Пароль"}</span><input type="text" data-secret autocomplete="off" spellcheck="false" id="pw-new" placeholder="не короче 4 символов"></label>
+        <label class="f"><span>Повторите пароль</span><input type="text" data-secret autocomplete="off" spellcheck="false" id="pw-new2"></label>
+      </div>
+      <div class="row" style="margin-top:14px"><button class="btn primary" id="pw-set">${icon("lock")}${g.password_set ? "Изменить пароль" : "Установить пароль"}</button>
+        ${g.password_set ? `<button class="btn" id="pw-off">Отключить пароль</button>` : ""}</div>
+      <div class="small muted" style="margin-top:10px">Забыли пароль? На этом компьютере выполните <code>SmartShellBridge.exe --reset-password</code> из папки программы.</div></div>
     <div class="card"><h2>Доступ к панели</h2><div class="form">
       <label class="f"><span>Порт панели</span><input type="number" id="g-port" value="${g.web_port}"></label>
-      <label class="f"><span>PIN-код для доступа по сети</span><input type="text" data-secret autocomplete="off" spellcheck="false" id="g-pin" value="${esc(g.lan_pin)}"></label>
+      <label class="f"><span>PIN-код для доступа по сети${g.password_set ? " (не нужен — действует пароль на вход)" : ""}</span><input type="text" data-secret autocomplete="off" spellcheck="false" id="g-pin" value="${esc(g.lan_pin)}"></label>
       <div class="f full">${sw("g-lan", g.allow_lan, "Разрешить открывать панель с других компьютеров/телефона в сети клуба (требуется PIN-код)")}</div>
     </div><div class="small muted" style="margin-top:8px">Изменение порта и доступа по сети применяется после перезапуска программы.</div></div>
     <div class="row"><button class="btn primary" id="g-save">${icon("check")}Сохранить настройки</button></div>
@@ -1001,9 +1028,23 @@ PAGES.settings = async el => {
     </div><div class="row" style="margin-top:14px"><button class="btn" id="n-test">${icon("send")}Отправить тест</button><button class="btn primary" id="n-save">${icon("check")}Сохранить</button></div></div>
     <div class="card"><h2>Мастер настройки</h2><p class="muted">Пошаговая настройка с нуля: SmartShell → умный дом → привязки.</p><button class="btn" onclick="wizard()">${icon("wand")}Открыть мастер</button></div>
     </div>`;
-  if (g.allow_lan && g.lan_pin === "") toast("Задайте PIN-код для доступа по сети", "err");
+  if (g.allow_lan && g.lan_pin === "" && !g.password_set) toast("Задайте PIN-код или пароль на вход для доступа по сети", "err");
+  $("#pw-set").onclick = e => busy(e.currentTarget, async () => {
+    const p1 = $("#pw-new").value, p2 = $("#pw-new2").value;
+    if (p1.length < 4) throw new Error("Пароль должен быть не короче 4 символов");
+    if (p1 !== p2) throw new Error("Пароли не совпадают");
+    await api("/api/security", { action: "set", password: p1, current: $("#pw-cur")?.value || "" });
+    toast(g.password_set ? "Пароль изменён" : "Пароль установлен. Теперь программу можно открыть только по паролю", "ok");
+    await pollState(); render();
+  }).catch(() => {});
+  const off = $("#pw-off");
+  if (off) off.onclick = e => busy(e.currentTarget, async () => {
+    if (!$("#pw-cur").value) throw new Error("Введите текущий пароль");
+    await api("/api/security", { action: "remove", current: $("#pw-cur").value });
+    toast("Пароль на вход отключён"); await pollState(); render();
+  }).catch(() => {});
   $("#g-save").onclick = e => busy(e.currentTarget, async () => {
-    if ($("#g-lan").checked && !$("#g-pin").value) throw new Error("Для доступа по сети задайте PIN-код");
+    if ($("#g-lan").checked && !$("#g-pin").value && !g.password_set) throw new Error("Для доступа по сети задайте PIN-код или пароль на вход");
     const r = await api("/api/general", { poll_interval: +$("#g-poll").value, max_billing_rpm: +$("#g-rpm").value, keepalive_interval: +$("#g-ka").value,
       enforce_state: $("#g-enforce").checked, dry_run: $("#g-dry").checked, autostart: $("#g-auto").checked, start_minimized: $("#g-min").checked,
       web_port: +$("#g-port").value, allow_lan: $("#g-lan").checked, lan_pin: $("#g-pin").value });
@@ -1107,6 +1148,12 @@ function showClosed() {
     S.quitting = true;
     try { await api("/api/app/quit", {}); } catch (e) { /* уже закрыта */ }
     showClosed();
+  };
+  $("#app-lock").onclick = async () => {
+    await fetch("/api/logout", { method: "POST", headers: { "X-SSB": "1" } }).catch(() => {});
+    $$(".modal-bg").forEach(m => m.remove());
+    await askPin("password");
+    await loadConfig(); render(); pollState();
   };
   $("#closed-close").onclick = () => window.close();
   $("#closed-retry").onclick = () => { S.quitting = false; S.fails = 0; pollState(); };

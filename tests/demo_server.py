@@ -34,11 +34,13 @@ class DemoSockets(Connector):
     description = "Тестовые устройства для проверки интерфейса"
     category = "local"
     fields = []
-    STATES = {"PS5-1": False, "PS5-2": False, "XBOX-1": False, "Телевизор зал": False, "Руль симулятор": False, "Лампа VIP": True}
+    STATES = {"PS5-1": False, "PS5-2": False, "XBOX-1": False, "Телевизор зал": False, "Руль симулятор": False, "Лампа VIP": True,
+              "Подсветка PC-01": False, "Подсветка PC-02": False, "Подсветка PC-03": False,
+              "Подсветка PC-04": False, "Подсветка PC-05": False, "Колонки VIP": False, "Кондиционер зал": True}
 
     def list_devices(self):
         time.sleep(0.3)
-        return [Device(id=k, name=k, state=v, room="Консольная" if "PS" in k or "XBOX" in k else "Зал", kind="socket")
+        return [Device(id=k, name=k, state=v, room="Консольная" if "PS" in k or "XBOX" in k else "Игровой зал" if "PC" in k else "Зал", kind="socket")
                 for k, v in self.STATES.items()]
 
     def set_state(self, device_id, on):
@@ -76,9 +78,9 @@ class DemoSS:
         self.next_id = base + 200
 
     def clubs(self):
-        return [{"id": 1, "name": "Демо-клуб", "address": "ул. Ленина, 1"},
-                {"id": 2, "name": "Демо Север", "address": "пр. Мира, 15"},
-                {"id": 3, "name": "Демо Юг", "address": "ул. Южная, 7"}]
+        return [{"id": 1, "name": "Клуб «Центр»", "address": "ул. Ленина, 1"},
+                {"id": 2, "name": "Клуб «Север»", "address": "пр. Мира, 15"},
+                {"id": 3, "name": "Клуб «Юг»", "address": "ул. Южная, 7"}]
 
     def authenticate(self):
         return "t"
@@ -114,8 +116,8 @@ class DemoApp:
     def __init__(self, port):
         self.config = Config()
         self.config.update("general", {"web_port": port, "autostart": False, "poll_interval": 5}, save=False)
-        self.config.upsert_club({"login": "demo", "password": "demo", "company_id": "1", "name": "Демо-клуб"})
-        self.config.upsert_club({"login": "demo", "password": "demo", "company_id": "2", "name": "Демо Север"})
+        self.config.upsert_club({"login": "demo", "password": "demo", "company_id": "1", "name": "Клуб «Центр»"})
+        self.config.upsert_club({"login": "demo", "password": "demo", "company_id": "2", "name": "Клуб «Север»"})
         self.config.update("wizard_done", True, save=False)
         self.config.upsert_connector({"type": "demo", "name": "Демо-розетки", "enabled": True, "settings": {}})
         self.ss = DemoSS("demo", "demo", "1")

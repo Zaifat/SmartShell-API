@@ -20,7 +20,7 @@ from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import APP_NAME, __version__, connectors, journal, paths, winsys
+from . import APP_NAME, __version__, auth, connectors, journal, paths, winsys
 from .config import MASK, Config, mask_tree, new_id, unmask_tree
 from .net import BridgeError, describe
 from .smartshell import SmartShell
@@ -35,6 +35,7 @@ class Api:
         self.app = app
         self.config: Config = app.config
         self.engine = app.engine
+        self.server = None  # Server задаёт себя сам
 
     # ---------- общее
     def get_state(self, q, body):
@@ -44,6 +45,7 @@ class Api:
         st["wizard_done"] = bool(self.config.get("wizard_done"))
         st["config_warning"] = self.config.load_error
         st["telegram"] = bool(self.app.notifier and self.app.notifier.enabled())
+        st["password_set"] = bool(self.config.get("general", "ui_password_hash", ""))
         return st
 
     def get_config(self, q, body):
@@ -52,11 +54,13 @@ class Api:
         snap["virtual_hosts"] = [{"host_id": v["host_id"], "alias": v.get("alias"), "club_id": v.get("club_id", "")}
                                  for v in self.config.virtual_hosts()]
         snap["data_dir"] = str(paths.data_dir())
+        gen = snap.get("general") or {}
+        gen["password_set"] = bool(gen.pop("ui_password_hash", ""))
         return mask_tree(snap)
 
     def post_general(self, q, body):
         old = self.config.get("general")
-        new = unmask_tree({k: v for k, v in body.items() if k in old}, old)
+        new = unmask_tree({k: v for k, v in body.items() if k in old and k != "ui_password_hash"}, old)
         if "poll_interval" in new:
             new["poll_interval"] = max(5, min(600, int(new["poll_interval"] or 10)))
         if "max_billing_rpm" in new:
@@ -446,6 +450,32 @@ class Api:
         threading.Timer(0.3, self.app.quit).start()
         return {"ok": True}
 
+    # ---------- пароль на вход
+    def post_security(self, q, body):
+        current = self.config.get("general", "ui_password_hash", "")
+        if current and not auth.verify_password(str(body.get("current") or ""), current):
+            raise BridgeError("неверный текущий пароль")
+        action = body.get("action")
+        if action == "set":
+            pw = str(body.get("password") or "")
+            auth.check_new_password(pw)
+            self.config.update("general", {"ui_password_hash": auth.hash_password(pw)})
+            self.server.sessions.clear()
+            journal.success("Установлен пароль на вход в программу" if not current else "Пароль на вход изменён", "config")
+            return {"ok": True, "login": True}
+        if action == "remove":
+            self.config.update("general", {"ui_password_hash": ""})
+            journal.warning("Пароль на вход в программу отключён", "config")
+            return {"ok": True}
+        raise BridgeError("неизвестное действие")
+
+    def post_security_reset(self, q, body):
+        """Сброс пароля командой SmartShellBridge.exe --reset-password (только с этого ПК)."""
+        self.config.update("general", {"ui_password_hash": ""})
+        self.server.sessions.clear()
+        journal.warning("Пароль на вход сброшен командой --reset-password", "config")
+        return {"ok": True}
+
     def post_open_logs(self, q, body):
         winsys.open_folder(paths.logs_dir())
         return {"ok": True}
@@ -500,6 +530,8 @@ ROUTES = {
     ("POST", "/api/open-url"): "post_open_url",
     ("POST", "/api/app/show"): "post_app_show",
     ("POST", "/api/app/quit"): "post_app_quit",
+    ("POST", "/api/security"): "post_security",
+    ("POST", "/api/security/reset"): "post_security_reset",
 }
 
 
@@ -513,9 +545,15 @@ class Server:
     def __init__(self, app):
         self.app = app
         self.api = Api(app)
+        self.api.server = self
         self.httpd: ThreadingHTTPServer | None = None
         self.port = 0
-        self.session_secret = pysecrets.token_hex(16)
+        self.sessions = auth.Sessions()
+        # токен для команд от второй копии программы на этом же ПК (--quit, --reset-password)
+        self.ipc_token = pysecrets.token_urlsafe(24)
+
+    def password_hash(self) -> str:
+        return self.app.config.get("general", "ui_password_hash", "") or ""
 
     @property
     def url(self) -> str:
@@ -539,6 +577,10 @@ class Server:
         self.httpd.daemon_threads = True
         self.port = self.httpd.server_address[1]
         (paths.data_dir() / "port.txt").write_text(str(self.port))
+        try:
+            (paths.data_dir() / "ipc.txt").write_text(self.ipc_token)
+        except OSError:
+            pass
         threading.Thread(target=self.httpd.serve_forever, name="web", daemon=True).start()
         journal.info(f"Панель управления: {self.url}" + (" (доступ из локальной сети включён)" if lan else ""), "system")
 
@@ -584,23 +626,40 @@ class Server:
                 host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip().lower()
                 return host in LOCAL_HOSTS
 
-            def _authorized(self) -> bool:
-                if self._is_local_client():
-                    return True
-                pin = server.app.config.get("general", "lan_pin", "")
-                if not pin:
-                    return False
+            def _cookie_token(self) -> str | None:
                 c = cookies.SimpleCookie(self.headers.get("Cookie", ""))
                 tok = c.get("ssb_auth")
-                return bool(tok and hmac.compare_digest(tok.value, server.session_secret))
+                return tok.value if tok else None
+
+            def _ipc_ok(self) -> bool:
+                tok = self.headers.get("X-SSB-Token") or ""
+                return bool(tok) and self._is_local_client() and hmac.compare_digest(tok, server.ipc_token)
+
+            def _authorized(self) -> bool:
+                if self._ipc_ok():
+                    return True
+                if server.password_hash():  # пароль на вход — для всех, включая этот ПК
+                    return server.sessions.valid(self._cookie_token())
+                if self._is_local_client():
+                    return True
+                if not server.app.config.get("general", "lan_pin", ""):
+                    return False
+                return server.sessions.valid(self._cookie_token())
+
+            def _read_raw(self) -> bytes:
+                """Тело запроса читается один раз и целиком — даже если запрос отклонён,
+                иначе остаток попадёт в следующий запрос того же соединения."""
+                if getattr(self, "_raw", None) is None:
+                    n = int(self.headers.get("Content-Length") or 0)
+                    if n > 2_000_000:
+                        self.close_connection = True
+                        raise BridgeError("слишком большой запрос")
+                    self._raw = self.rfile.read(n) if n > 0 else b""
+                return self._raw
 
             def _body(self) -> dict:
-                n = int(self.headers.get("Content-Length") or 0)
-                if n <= 0:
-                    return {}
-                if n > 2_000_000:
-                    raise BridgeError("слишком большой запрос")
-                return json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+                raw = self._read_raw()
+                return json.loads(raw.decode("utf-8") or "{}") if raw else {}
 
             # ---- methods
             def do_HEAD(self):
@@ -613,17 +672,27 @@ class Server:
                 self._dispatch("POST")
 
             def _dispatch(self, method: str):
+                self._raw = None
                 try:
+                    if method == "POST":
+                        self._read_raw()
                     if not self._host_ok():
                         return self._send(403, b"Forbidden", "text/plain")
                     url = urlparse(self.path)
                     path = url.path
                     if path == "/api/login" and method == "POST":
                         return self._login()
+                    if path == "/api/logout" and method == "POST":
+                        server.sessions.drop(self._cookie_token())
+                        return self._json(200, {"ok": True}, {"Set-Cookie": "ssb_auth=; Max-Age=0; HttpOnly; SameSite=Strict; Path=/"})
                     if not path.startswith("/api/"):
                         return self._static(path)
                     if not self._authorized():
-                        return self._json(401, {"error": "Требуется PIN-код", "need_pin": True})
+                        mode = "password" if server.password_hash() else "pin"
+                        return self._json(401, {"error": "Требуется пароль" if mode == "password" else "Требуется PIN-код",
+                                                "need_pin": True, "mode": mode})
+                    if path == "/api/security/reset" and not self._ipc_ok():
+                        return self._json(403, {"error": "только командой --reset-password на этом ПК"})
                     if method == "POST" and self.headers.get("X-SSB") != "1":
                         return self._json(403, {"error": "forbidden"})
                     if path in ("/api/open-url", "/api/app/show", "/api/app/quit") and not self._is_local_client():
@@ -635,6 +704,10 @@ class Server:
                     q = {k: v[0] for k, v in parse_qs(url.query).items()}
                     body = self._body() if method == "POST" else {}
                     result = getattr(server.api, name)(q, body)
+                    if path == "/api/security" and result.pop("login", False):
+                        # после установки пароля текущее окно остаётся в системе
+                        tok = server.sessions.create()
+                        return self._json(200, result, {"Set-Cookie": f"ssb_auth={tok}; HttpOnly; SameSite=Strict; Path=/"})
                     self._json(200, result)
                 except (BridgeError, ValueError, KeyError) as e:
                     self._json(400, {"error": describe(e) if not isinstance(e, KeyError) else f"нет поля {e}"})
@@ -643,13 +716,27 @@ class Server:
                     self._json(500, {"error": describe(e)})
 
             def _login(self):
+                addr = self.client_address[0]
+                wait = server.sessions.locked_for(addr)
+                if wait:
+                    return self._json(429, {"error": f"Слишком много неверных попыток. Подождите {wait} с"})
                 body = self._body()
-                pin = server.app.config.get("general", "lan_pin", "")
-                if pin and pin != MASK and hmac.compare_digest(str(body.get("pin", "")), pin):
-                    return self._json(200, {"ok": True}, {"Set-Cookie": f"ssb_auth={server.session_secret}; HttpOnly; SameSite=Strict; Path=/"})
+                secret = str(body.get("password") or body.get("pin") or "")
+                pw_hash = server.password_hash()
+                if pw_hash:
+                    ok, what = auth.verify_password(secret, pw_hash), "пароль"
+                else:
+                    pin = server.app.config.get("general", "lan_pin", "")
+                    ok, what = bool(pin and pin != MASK and hmac.compare_digest(secret, pin)), "PIN-код"
+                if ok:
+                    server.sessions.succeeded(addr)
+                    tok = server.sessions.create()
+                    journal.info(f"Вход в панель управления ({addr})", "system")
+                    return self._json(200, {"ok": True}, {"Set-Cookie": f"ssb_auth={tok}; HttpOnly; SameSite=Strict; Path=/"})
+                server.sessions.failed(addr)
                 time.sleep(1)
-                journal.warning(f"Неверный PIN-код с адреса {self.client_address[0]}", "system")
-                return self._json(401, {"error": "Неверный PIN-код"})
+                journal.warning(f"Неверный {what} при входе в панель (адрес {addr})", "system")
+                return self._json(401, {"error": f"Неверный {what}"})
 
             def _static(self, path: str):
                 if path in ("", "/"):

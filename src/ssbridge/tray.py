@@ -57,17 +57,22 @@ class Tray:
         def paused_checked(_):
             return self.app.engine.paused
 
+        def unlocked(_):
+            # при пароле на вход управление программой — только из панели
+            return not self.app.config.get("general", "ui_password_hash", "")
+
         menu = Menu(
             Item("Открыть панель управления", lambda: self.app.open_panel(), default=True),
             Menu.SEPARATOR,
             Item(lambda _: self.app.engine.overall()[1], None, enabled=False),
             Item("Синхронизировать сейчас", lambda: self.app.engine.run_now()),
-            Item("Пауза синхронизации", lambda: self.app.engine.set_paused(not self.app.engine.paused), checked=paused_checked),
+            Item("Пауза синхронизации", lambda: self.app.engine.set_paused(not self.app.engine.paused), checked=paused_checked, visible=unlocked),
             Menu.SEPARATOR,
             Item("Открыть папку журналов", lambda: winsys.open_folder(paths.logs_dir())),
-            Item("Запускать вместе с Windows", toggle_autostart, checked=autostart_checked),
+            Item("Запускать вместе с Windows", toggle_autostart, checked=autostart_checked, visible=unlocked),
             Menu.SEPARATOR,
-            Item("Выход", lambda: self.app.quit()),
+            Item("Выход", lambda: self.app.quit(), visible=unlocked),
+            Item("Выход — в панели (защищено паролем)", None, enabled=False, visible=lambda _: not unlocked(_)),
         )
         self.icon = pystray.Icon("ssbridge", make_icon("setup"), APP_NAME, menu)
         self.app.engine.add_listener(self.refresh)

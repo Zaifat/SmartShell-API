@@ -114,6 +114,7 @@ def main(argv=None) -> int:
     parser.add_argument("--debug", action="store_true", help="подробный журнал")
     parser.add_argument("--selftest", action="store_true", help="выполнить диагностику и выйти")
     parser.add_argument("--quit", action="store_true", help="закрыть уже запущенную программу (для установщика)")
+    parser.add_argument("--reset-password", action="store_true", help="сбросить пароль на вход в панель")
     args = parser.parse_args(argv)
 
     # pythonw / windowed exe: stdout отсутствует
@@ -135,6 +136,8 @@ def main(argv=None) -> int:
             print(("[OK]   " if c["ok"] else "[FAIL] ") + f"{c['name']}: {c['message']}")
         return 0 if ok else 1
 
+    if args.reset_password:
+        return _reset_password()
     if not winsys.acquire_single_instance():
         return _quit_running() if args.quit else _activate_running(args)
     if args.quit:
@@ -148,9 +151,30 @@ def main(argv=None) -> int:
 
 def _post_running(path: str, timeout: float = 5) -> None:
     port = (paths.data_dir() / "port.txt").read_text().strip()
+    try:
+        token = (paths.data_dir() / "ipc.txt").read_text().strip()
+    except OSError:
+        token = ""
     req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=b"{}", method="POST",
-                                 headers={"X-SSB": "1", "Content-Type": "application/json"})
+                                 headers={"X-SSB": "1", "Content-Type": "application/json", "X-SSB-Token": token})
     urllib.request.urlopen(req, timeout=timeout).read()
+
+
+def _reset_password() -> int:
+    """Сбросить пароль на вход (работающей программе — через команду, иначе — в файле настроек)."""
+    ok = False
+    if not winsys.acquire_single_instance():
+        try:
+            _post_running("/api/security/reset")
+            ok = True
+        except Exception as e:
+            journal.error(f"Не удалось сбросить пароль в запущенной программе: {e}", "config")
+    else:
+        Config().update("general", {"ui_password_hash": ""})
+        journal.warning("Пароль на вход сброшен командой --reset-password", "config")
+        ok = True
+    winsys.message_box("Пароль на вход в панель сброшен." if ok else "Не удалось сбросить пароль — см. журнал программы.", APP_NAME)
+    return 0 if ok else 1
 
 
 def _quit_running() -> int:

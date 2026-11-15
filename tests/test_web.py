@@ -276,3 +276,84 @@ def test_virtual_host_requires_club_when_many(hserver):
     kid = cfg.clubs()[0]["id"]
     st, r = post(srv, "/api/hosts/virtual", {"alias": "Xbox", "club_id": kid})
     assert st == 200 and cfg.virtual_hosts()[0]["club_id"] == kid
+
+
+# ---------------------------------------------------------------- пароль на вход
+def req_h(srv, method, path, body=None, headers=None):
+    conn = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=10)
+    h = {"Content-Type": "application/json", "X-SSB": "1", **(headers or {})}
+    conn.request(method, path, body=json.dumps(body) if body is not None else None, headers=h)
+    r = conn.getresponse()
+    data = r.read()
+    conn.close()
+    cookie = (r.getheader("Set-Cookie") or "").split(";")[0]
+    return r.status, json.loads(data or b"{}"), cookie
+
+
+def test_password_hashing():
+    from ssbridge import auth
+    h = auth.hash_password("секрет-123")
+    assert "секрет" not in h and h.startswith("pbkdf2_sha256$")
+    assert auth.verify_password("секрет-123", h)
+    assert not auth.verify_password("секрет-124", h)
+    assert not auth.verify_password("x", "мусор")
+
+
+def test_password_protects_panel(server, tmp_config):
+    # без пароля локальный доступ свободный
+    assert req_h(server, "GET", "/api/state")[0] == 200
+    st, r, cookie = req_h(server, "POST", "/api/security", {"action": "set", "password": "12"})
+    assert st == 400 and "не короче" in r["error"]
+    st, r, cookie = req_h(server, "POST", "/api/security", {"action": "set", "password": "pass1234"})
+    assert st == 200 and cookie.startswith("ssb_auth=")  # окно, где задали пароль, остаётся в системе
+    # без сессии — нужен пароль, даже с этого ПК
+    st, r, _ = req_h(server, "GET", "/api/state")
+    assert st == 401 and r["mode"] == "password"
+    assert req_h(server, "GET", "/api/state", headers={"Cookie": cookie})[0] == 200
+    # статика (страница входа) доступна
+    assert req(server, "GET", "/")[0] == 200
+    # хеш пароля не отдаётся и не меняется через общие настройки
+    st, cfg, _ = req_h(server, "GET", "/api/config", headers={"Cookie": cookie})
+    assert cfg["general"]["password_set"] is True and "ui_password_hash" not in cfg["general"]
+    req_h(server, "POST", "/api/general", {"ui_password_hash": ""}, {"Cookie": cookie})
+    assert tmp_config.get("general", "ui_password_hash")
+    # вход
+    st, r, _ = req_h(server, "POST", "/api/login", {"password": "wrong"})
+    assert st == 401 and "Неверный пароль" in r["error"]
+    st, r, c2 = req_h(server, "POST", "/api/login", {"password": "pass1234"})
+    assert st == 200 and c2 and req_h(server, "GET", "/api/state", headers={"Cookie": c2})[0] == 200
+    # выход (блокировка) — сессия больше не действует
+    req_h(server, "POST", "/api/logout", {}, {"Cookie": c2})
+    assert req_h(server, "GET", "/api/state", headers={"Cookie": c2})[0] == 401
+    # смена пароля требует текущий
+    st, r, _ = req_h(server, "POST", "/api/security", {"action": "set", "password": "new-pass", "current": "bad"}, {"Cookie": cookie})
+    assert st == 400 and "текущий" in r["error"]
+    st, r, c3 = req_h(server, "POST", "/api/security", {"action": "set", "password": "new-pass", "current": "pass1234"}, {"Cookie": cookie})
+    assert st == 200
+    assert req_h(server, "GET", "/api/state", headers={"Cookie": cookie})[0] == 401  # старые сессии сброшены
+    # отключение
+    st, r, _ = req_h(server, "POST", "/api/security", {"action": "remove", "current": "new-pass"}, {"Cookie": c3})
+    assert st == 200 and not tmp_config.get("general", "ui_password_hash")
+    assert req_h(server, "GET", "/api/state")[0] == 200
+
+
+def test_login_bruteforce_lock(server, tmp_config):
+    from ssbridge import auth
+    tmp_config.update("general", {"ui_password_hash": auth.hash_password("right-pass")})
+    for _ in range(auth.MAX_FAILS):
+        assert req_h(server, "POST", "/api/login", {"password": "nope"})[0] == 401
+    st, r, _ = req_h(server, "POST", "/api/login", {"password": "right-pass"})
+    assert st == 429 and "Подождите" in r["error"]  # даже верный пароль — после паузы
+
+
+def test_reset_password_only_via_ipc(server, tmp_config):
+    from ssbridge import auth, paths
+    tmp_config.update("general", {"ui_password_hash": auth.hash_password("right-pass")})
+    st, _, _ = req_h(server, "POST", "/api/security/reset", {})
+    assert st == 401
+    token = (paths.data_dir() / "ipc.txt").read_text()
+    assert token == server.ipc_token
+    st, _, _ = req_h(server, "POST", "/api/security/reset", {}, {"X-SSB-Token": "wrong"})
+    assert st == 401
+    st, _, _ = req_h(server, "POST", "/api/security/reset", {}, {"X-SSB-Token": token})
+    assert st == 200 and not tmp_config.get("general", "ui_password_hash")

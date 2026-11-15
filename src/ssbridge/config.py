@@ -35,6 +35,7 @@ DEFAULTS: dict[str, Any] = {
         "web_port": 8765,
         "allow_lan": False,
         "lan_pin": "",
+        "ui_password_hash": "",  # пароль на вход в панель (только хеш); пусто — без пароля
         "keepalive_interval": 30,
         "max_billing_rpm": 15,
     },

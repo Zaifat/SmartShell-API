@@ -38,7 +38,8 @@ nav a:hover { background: var(--card2); color: var(--text); }
 nav a.active { background: linear-gradient(90deg, rgba(124,108,246,.22), rgba(91,140,255,.08)); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }
 nav a i svg { width: 18px; height: 18px; }
 nav .badge { margin-left: auto; background: var(--err); color: #fff; font-size: 11px; padding: 0 7px; border-radius: 10px; }
-.side-foot { display: flex; gap: 8px; align-items: center; padding-top: 12px; border-top: 1px solid var(--line); }
+.side-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 12px; border-top: 1px solid var(--line); }
+.side-foot .status-pill { flex: 1 1 100%; }
 .status-pill { flex: 1; display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); min-width: 0; }
 .status-pill span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gray); flex: none; box-shadow: 0 0 0 3px rgba(100,116,139,.2); }
@@ -99,6 +100,7 @@ h3 { font-size: 14px; margin: 0 0 8px; }
 .tag.info { color: var(--accent2); border-color: rgba(91,140,255,.35); background: rgba(91,140,255,.08); }
 
 /* buttons & forms */
+[hidden] { display: none !important; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--card2); color: var(--text); padding: 8px 14px; border-radius: 10px; cursor: pointer; font: inherit; font-weight: 500; transition: .15s; white-space: nowrap; }
 .btn:hover { border-color: var(--accent); }
 .btn:disabled { opacity: .5; cursor: default; }
@@ -260,6 +262,17 @@ input[data-secret]:not(.shown) { -webkit-text-security: disc; text-security: dis
 .club-seg .dev-dot { display: inline-block; vertical-align: middle; }
 .dev-dot.err { background: var(--err); }
 .club-ic { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+.club-ic svg { width: 22px; height: 22px; }
 .club-strip { display: flex; flex-wrap: wrap; gap: 8px; margin: -8px 0 22px; }
 .club-chip { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); font-size: 13px; }
 .club-chip.err { border-color: var(--err); }
+
+/* экран входа */
+#login { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; background: var(--bg); }
+#login[hidden] { display: none; }
+#login .login-box { width: min(360px, calc(100vw - 32px)); text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+#login .login-box img { align-self: center; }
+#login h2 { margin: 6px 0 0; }
+#login .muted { margin: 0; }
+#login .btn { justify-content: center; }
+#login code, #pw-card code { font-size: 12px; background: var(--card2); padding: 2px 6px; border-radius: 6px; }
