@@ -748,7 +748,8 @@ async function wizard(step = 1) {
     const nx = $("#wz-next", m.el); if (nx) nx.onclick = () => { m.close(); wizard(3); };
     $$("[data-type]", m.el).forEach(c => c.onclick = () => { m.close(); editSystemDialog({ type: c.dataset.type, enabled: true, settings: {} }, () => wizard(3)); });
   } else {
-    const m = modal({ title: "Мастер настройки · 3/3 · Привязки", body: `${steps}<div id="wz-b" class="empty">Ищем устройства с такими же названиями, как хосты SmartShell…</div>`,
+    const m = modal({ title: "Мастер настройки · 3/3 · Привязки", body: `${steps}<div id="wz-b" class="empty">Ищем устройства с такими же названиями, как хосты SmartShell…</div>
+      <div class="docs" style="margin-top:16px">${sw("wz-autostart", true, "Запускать программу вместе с Windows (рекомендуется — иначе после перезагрузки ПК устройства не будут управляться)")}</div>`,
       foot: `<button class="btn" id="wz-back" style="margin-right:auto">Назад</button><button class="btn" id="wz-manual">Настрою вручную</button><button class="btn primary" id="wz-done">Готово</button>` });
     let matches = [];
     $("#wz-back", m.el).onclick = () => { m.close(); wizard(2); };
@@ -756,6 +757,7 @@ async function wizard(step = 1) {
     $("#wz-done", m.el).onclick = e => busy(e.currentTarget, async () => {
       const chosen = matches.filter((_, i) => $(`#wzm-${i}`, m.el)?.checked);
       if (chosen.length) await api("/api/bindings", { bindings: [...S.config.bindings, ...chosen] });
+      if ($("#wz-autostart", m.el).checked) await api("/api/general", { autostart: true });
       await finish(); m.close(); toast("Настройка завершена! Программа работает в фоне — значок в трее рядом с часами.", "ok"); go("dashboard");
     }).catch(() => {});
     try {

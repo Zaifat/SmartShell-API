@@ -33,6 +33,19 @@ def autostart_enabled() -> bool:
         return False
 
 
+def autostart_current() -> bool:
+    """Автозапуск включён и указывает на текущий exe."""
+    if sys.platform != "win32":
+        return False
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            val, _ = winreg.QueryValueEx(k, APP_ID)
+            return val == _launch_command()
+    except OSError:
+        return False
+
+
 def set_autostart(enabled: bool) -> None:
     if sys.platform != "win32":
         return
@@ -56,7 +69,10 @@ def acquire_single_instance() -> bool:
     if sys.platform != "win32":
         return True
     import ctypes
-    _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, f"Local\\{APP_ID}_mutex")
+    import hashlib
+    # Один экземпляр на папку данных (портативные копии не мешают друг другу)
+    tag = hashlib.sha1(str(paths.data_dir()).lower().encode()).hexdigest()[:12]
+    _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, f"Local\\{APP_ID}_{tag}")
     return ctypes.windll.kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
 
 
@@ -79,10 +95,8 @@ def open_panel(url: str) -> None:
     if browser:
         try:
             profile = paths.data_dir() / "ui-profile"
-            flags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
             subprocess.Popen([browser, f"--app={url}", f"--user-data-dir={profile}", "--window-size=1280,860",
-                              "--no-first-run", "--no-default-browser-check", "--disable-features=Translate"],
-                             creationflags=flags, close_fds=True)
+                              "--no-first-run", "--no-default-browser-check", "--disable-features=Translate"], close_fds=True)
             return
         except OSError:
             pass

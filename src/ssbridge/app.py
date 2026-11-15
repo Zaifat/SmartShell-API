@@ -32,10 +32,11 @@ class App:
         journal.info(f"{APP_NAME} {__version__} запущен. Папка данных: {paths.data_dir()}", "system")
         if self.config.load_error:
             journal.warning(self.config.load_error, "config")
-        # синхронизация реестра автозапуска с настройкой
+        # Автозапуск прописывается только если пользователь сам его включил
+        # (и обновляется путь, если exe перенесли в другую папку).
         try:
-            if self.config.get("general", "autostart", True) != winsys.autostart_enabled():
-                winsys.set_autostart(bool(self.config.get("general", "autostart", True)))
+            if self.config.get("general", "autostart", False) and not winsys.autostart_current():
+                winsys.set_autostart(True)
         except Exception as e:
             journal.warning(f"Не удалось настроить автозапуск: {e}", "system")
 

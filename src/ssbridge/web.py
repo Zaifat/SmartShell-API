@@ -67,7 +67,7 @@ class Api:
             winsys.set_autostart(bool(body["autostart"]))
         journal.info("Общие настройки сохранены", "config")
         self.engine.run_now()
-        return {"ok": True, "restart_needed": any(new.get(k) != old.get(k) for k in ("web_port", "allow_lan"))}
+        return {"ok": True, "restart_needed": any(k in new and new[k] != old.get(k) for k in ("web_port", "allow_lan"))}
 
     def post_notify(self, q, body):
         old = self.config.get("notify")

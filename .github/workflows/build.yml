@@ -22,17 +22,18 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Tests
         run: python -m pytest -q
-      - name: Build exe
+      - name: Build
         run: |
           python build/make_icon.py
           python -m PyInstaller --noconfirm --clean --distpath dist --workpath build/work build/SmartShellBridge.spec
+          Compress-Archive -Path dist/SmartShellBridge -DestinationPath dist/SmartShellBridge.zip
       - uses: actions/upload-artifact@v4
         with:
           name: SmartShellBridge
-          path: dist/SmartShellBridge.exe
+          path: dist/SmartShellBridge/
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/SmartShellBridge.exe
+          files: dist/SmartShellBridge.zip
           generate_release_notes: true

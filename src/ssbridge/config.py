@@ -34,7 +34,7 @@ DEFAULTS: dict[str, Any] = {
         "poll_interval": 10,
         "enforce_state": True,
         "dry_run": False,
-        "autostart": True,
+        "autostart": False,  # включается только по выбору пользователя
         "start_minimized": True,
         "web_port": 8765,
         "allow_lan": False,
