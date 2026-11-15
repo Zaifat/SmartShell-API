@@ -63,7 +63,7 @@ def host(active=False, in_service=False, hid=10, alias="PS5-1"):
 def setup(tmp_config):
     ss = FakeSS()
     conn = FakeConn("c1", "Fake", {})
-    tmp_config.update("smartshell", {"login": "l", "password": "p", "company_id": "1"})
+    tmp_config.upsert_club({"login": "l", "password": "p", "company_id": "1", "name": "Клуб"})
     tmp_config.update("connectors", [{"id": "c1", "type": "fake", "name": "Fake", "enabled": True, "settings": {}}])
     tmp_config.set_bindings([{"id": "b1", "host_id": 10, "host_alias": "PS5-1", "connector_id": "c1", "device_id": "d1",
                               "device_name": "d1", "enabled": True, "off_delay": 0}])
@@ -98,7 +98,7 @@ def test_smartshell_down_holds_state(setup):
     assert eng.overall()[0] == "error"
     ss.fail = False
     eng.run_cycle()
-    assert eng.ss_ok is True
+    assert eng.club().ok is True
 
 
 def test_off_delay(setup):
@@ -257,3 +257,50 @@ def test_rate_limiter():
     assert rl.acquire(0) is False
     time.sleep(0.55)
     assert rl.acquire(0)
+
+
+def test_two_clubs_are_independent(tmp_config):
+    """Сбой одного клуба не мешает переключать устройства другого."""
+    ss_a, ss_b = FakeSS(), FakeSS()
+    conn = FakeConn("c1", "Fake", {})
+    conn.states = {"d1": False, "d2": False}
+    a = tmp_config.upsert_club({"login": "a", "password": "p", "company_id": "1", "name": "Центр"})
+    b = tmp_config.upsert_club({"login": "b", "password": "p", "company_id": "2", "name": "Север"})
+    tmp_config.update("connectors", [{"id": "c1", "type": "fake", "name": "Fake", "enabled": True, "settings": {}}])
+    tmp_config.set_bindings([
+        {"id": "ba", "club_id": a["id"], "host_id": 10, "host_alias": "PC-1", "connector_id": "c1", "device_id": "d1"},
+        {"id": "bb", "club_id": b["id"], "host_id": 10, "host_alias": "PC-1", "connector_id": "c1", "device_id": "d2"},
+    ])
+    by_company = {"1": ss_a, "2": ss_b}
+    eng = Engine(tmp_config, None, smartshell_factory=lambda login, pw, cid, *a, **k: by_company[cid],
+                 connector_factory=lambda conf: conn)
+    ss_a.hosts_list = [host(active=True, alias="PC-1")]
+    ss_b.hosts_list = [host(active=False, alias="PC-1")]
+    eng.run_cycle()
+    assert conn.commands == [("d1", True)]  # хост 10 активен только в клубе «Центр»
+    st = eng.status()
+    assert [c["name"] for c in st["clubs"]] == ["Центр", "Север"]
+    assert {x["id"]: x["club_name"] for x in st["bindings"]} == {"ba": "Центр", "bb": "Север"}
+    # «Центр» недоступен: его устройство удерживается, «Север» работает
+    ss_a.fail = True
+    ss_b.hosts_list = [host(active=True, alias="PC-1")]
+    eng.run_cycle()
+    assert conn.commands == [("d1", True), ("d2", True)]
+    level, text = eng.overall()
+    assert level == "error" and "Центр" in text
+    ss_a.hosts_list = [host(active=False, alias="PC-1")]
+    eng.run_cycle()
+    assert conn.commands == [("d1", True), ("d2", True)]  # пока нет связи — ничего не выключаем
+    ss_a.fail = False
+    eng.run_cycle()
+    assert conn.commands[-1] == ("d1", False)
+    assert eng.overall()[0] == "ok"
+
+
+def test_disabled_club_binding_reports_error(setup):
+    eng, ss, conn, cfg = setup
+    kid = cfg.clubs()[0]["id"]
+    cfg.upsert_club({"id": kid, "enabled": False})
+    eng.run_cycle()
+    assert eng.status()["bindings"][0]["state"]["error"] == "клуб SmartShell удалён или отключён"
+    assert eng.overall()[0] == "setup" or eng.overall()[0] in ("warn", "error")

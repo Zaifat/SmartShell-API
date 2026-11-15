@@ -18,19 +18,14 @@ from typing import Any
 from . import paths, secrets
 from .net import BridgeError
 
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 SECRET_KEYS = {"password", "token", "access_secret", "secret", "api_key", "lan_pin", "telegram_token"}
 MASK = "••••••••"
 
 DEFAULTS: dict[str, Any] = {
     "version": CONFIG_VERSION,
-    "smartshell": {
-        "login": "",
-        "password": "",
-        "company_id": "",
-        "club_name": "",
-        "user_agent": "",
-    },
+    # клубы (аккаунты) SmartShell: [{id, name, login, password, company_id, user_agent, enabled}]
+    "clubs": [],
     "general": {
         "poll_interval": 10,
         "enforce_state": True,
@@ -134,11 +129,44 @@ class Config:
                     self._data = _merge(DEFAULTS, decrypt_tree(raw))
                     if candidate != self.path:
                         self.load_error = "Основной файл настроек повреждён, загружена резервная копия"
+                    if self._migrate():
+                        try:
+                            self.save()
+                        except OSError:
+                            pass
                     self.revision += 1
                     return
                 except Exception as e:  # повреждённый файл
                     self.load_error = f"Не удалось прочитать {candidate.name}: {e}"
             self._data = copy.deepcopy(DEFAULTS)
+
+    def _migrate(self) -> bool:
+        """Перенос настроек старых версий. Возвращает True, если что-то изменилось."""
+        d = self._data
+        changed = False
+        old = d.pop("smartshell", None)
+        if isinstance(old, dict):
+            changed = True
+            if old.get("login") and not d.get("clubs"):
+                cid = str(old.get("company_id", "")).strip()
+                # старый интерфейс сохранял «Название — адрес»; оставляем только название
+                name = str(old.get("club_name") or "").split(" — ")[0].strip()
+                d["clubs"] = [{
+                    "id": new_id("k"), "name": name or f"Клуб {cid}".strip(),
+                    "login": old.get("login", ""), "password": old.get("password", ""),
+                    "company_id": cid, "user_agent": old.get("user_agent", ""), "enabled": True,
+                }]
+        clubs = d.get("clubs") or []
+        if clubs:
+            first = clubs[0]["id"]
+            for item in list(d.get("bindings") or []) + list(d.get("virtual_hosts") or []):
+                if not item.get("club_id"):
+                    item["club_id"] = first
+                    changed = True
+        if d.get("version") != CONFIG_VERSION:
+            d["version"] = CONFIG_VERSION
+            changed = True
+        return changed
 
     def _backup_path(self) -> Path:
         return self.path.with_name("config.bak.json")
@@ -185,6 +213,58 @@ class Config:
             if save:
                 self.save()
 
+    # ---- клубы SmartShell ----
+    CLUB_FIELDS = ("name", "login", "password", "company_id", "user_agent", "enabled")
+
+    def clubs(self) -> list[dict]:
+        return self.get("clubs") or []
+
+    def club(self, kid: str) -> dict | None:
+        return next((c for c in self.clubs() if c.get("id") == kid), None)
+
+    def upsert_club(self, club: dict) -> dict:
+        with self._lock:
+            items = self._data.setdefault("clubs", [])
+            data = {k: club[k] for k in self.CLUB_FIELDS if k in club}
+            old = next((c for c in items if c["id"] == club.get("id")), None) if club.get("id") else None
+            if club.get("id") and old is None:
+                raise BridgeError("клуб не найден")
+            merged = dict(old or {"id": new_id("k"), "name": "", "login": "", "password": "", "company_id": "",
+                                  "user_agent": "", "enabled": True})
+            merged.update(unmask_tree(data, old or {}))
+            merged["company_id"] = str(merged.get("company_id") or "").strip()
+            merged["login"] = str(merged.get("login") or "").strip()
+            merged["name"] = str(merged.get("name") or "").strip() or f"Клуб {merged['company_id']}".strip()
+            merged["enabled"] = bool(merged.get("enabled", True))
+            if not merged["login"] or not merged["password"]:
+                raise BridgeError("укажите логин и пароль SmartShell")
+            if not merged["company_id"]:
+                raise BridgeError("выберите клуб")
+            dup = next((c for c in items if c["id"] != merged["id"] and c.get("company_id") == merged["company_id"]), None)
+            if dup:
+                raise BridgeError(f"клуб «{dup.get('name')}» уже добавлен")
+            if old is not None:
+                items[items.index(old)] = merged
+            else:
+                items.append(merged)
+                # первый клуб: привязки без клуба (из старых версий) относятся к нему
+                if len(items) == 1:
+                    for x in list(self._data.get("bindings") or []) + list(self._data.get("virtual_hosts") or []):
+                        if not x.get("club_id"):
+                            x["club_id"] = merged["id"]
+            self.save()
+            return copy.deepcopy(merged)
+
+    def delete_club(self, kid: str) -> None:
+        with self._lock:
+            before = len(self._data.get("clubs", []))
+            self._data["clubs"] = [c for c in self._data.get("clubs", []) if c.get("id") != kid]
+            if len(self._data["clubs"]) == before:
+                raise BridgeError("клуб не найден")
+            self._data["bindings"] = [b for b in self._data.get("bindings", []) if b.get("club_id") != kid]
+            self._data["virtual_hosts"] = [v for v in self._data.get("virtual_hosts", []) if v.get("club_id") != kid]
+            self.save()
+
     # ---- коннекторы ----
     def connectors(self) -> list[dict]:
         return self.get("connectors") or []
@@ -230,10 +310,10 @@ class Config:
             items = self._data.setdefault("bindings", [])
             for x in items:
                 if (str(x.get("host_id")) == str(b.get("host_id")) and x.get("connector_id") == b.get("connector_id")
-                        and x.get("device_id") == b.get("device_id")):
+                        and x.get("device_id") == b.get("device_id") and x.get("club_id", "") == (b.get("club_id") or "")):
                     return copy.deepcopy(x), False
             nb = {
-                "id": new_id("b"), "host_id": b.get("host_id"), "host_alias": b.get("host_alias", ""),
+                "id": new_id("b"), "club_id": b.get("club_id") or "", "host_id": b.get("host_id"), "host_alias": b.get("host_alias", ""),
                 "connector_id": b["connector_id"], "device_id": b["device_id"], "device_name": b.get("device_name", ""),
                 "enabled": bool(b.get("enabled", True)), "off_delay": max(0, int(b.get("off_delay") or 0)),
                 "invert": bool(b.get("invert")), "on_in_service": bool(b.get("on_in_service")),
@@ -265,14 +345,17 @@ class Config:
     def virtual_hosts(self) -> list[dict]:
         return self.get("virtual_hosts") or []
 
-    def add_virtual_host(self, host_id: int, alias: str, token: str) -> None:
+    def add_virtual_host(self, host_id: int, alias: str, token: str, club_id: str = "") -> None:
         with self._lock:
-            items = [v for v in self._data.get("virtual_hosts", []) if v.get("host_id") != host_id]
-            items.append({"host_id": host_id, "alias": alias, "token": token})
+            items = [v for v in self._data.get("virtual_hosts", [])
+                     if not (v.get("host_id") == host_id and v.get("club_id", "") == club_id)]
+            items.append({"club_id": club_id, "host_id": host_id, "alias": alias, "token": token})
             self._data["virtual_hosts"] = items
             self.save()
 
-    def remove_virtual_host(self, host_id: int) -> None:
+    def remove_virtual_host(self, host_id: int, club_id: str | None = None) -> None:
         with self._lock:
-            self._data["virtual_hosts"] = [v for v in self._data.get("virtual_hosts", []) if v.get("host_id") != host_id]
+            self._data["virtual_hosts"] = [
+                v for v in self._data.get("virtual_hosts", [])
+                if not (v.get("host_id") == host_id and (club_id is None or v.get("club_id", "") == club_id))]
             self.save()

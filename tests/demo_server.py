@@ -1,8 +1,9 @@
 """Демо-стенд для ручной проверки интерфейса без настоящего клуба.
 
 Запуск:  python tests/demo_server.py [порт]
-Поднимает панель с тестовым SmartShell (8 хостов, сеансы меняются сами)
+Поднимает панель с двумя тестовыми клубами SmartShell (сеансы меняются сами)
 и тестовой системой умного дома (розетки). Данные — во временной папке.
+Поиск клубов по логину возвращает три клуба (третий ещё не добавлен).
 """
 from __future__ import annotations
 
@@ -46,14 +47,41 @@ class DemoSockets(Connector):
 
 class DemoSS:
     configured = True
+    INSTANCES: dict = {}
+
+    def __new__(cls, login="", password="", company_id="1", *a, **k):
+        # один объект на клуб — состояние хостов сохраняется между пересозданиями
+        cid = str(company_id or "1")
+        if cid not in cls.INSTANCES:
+            obj = super().__new__(cls)
+            obj._init(cid)
+            cls.INSTANCES[cid] = obj
+        return cls.INSTANCES[cid]
 
     def __init__(self, *a, **k):
+        pass
+
+    def _init(self, cid):
+        self.login_name, self.password = "demo", "demo"
         self.limiter = RateLimiter(15)
         self.groups = [{"id": 1, "title": "Игровые ПК"}, {"id": 2, "title": "Консоли"}]
-        self.hosts_list = [Host(i, f"PC-{i:02d}", 1, "Игровые ПК", False, False, True) for i in range(1, 6)]
-        self.hosts_list += [Host(101, "PS5-1", 2, "Консоли", False, False, True), Host(102, "ps5 2", 2, "Консоли", False, False, True),
-                            Host(103, "XBOX-1", 2, "Консоли", True, False, True)]
-        self.next_id = 200
+        base = 1000 * (int(cid) if cid.isdigit() else 9)
+        if cid == "1":
+            self.hosts_list = [Host(i, f"PC-{i:02d}", 1, "Игровые ПК", False, False, True) for i in range(1, 6)]
+            self.hosts_list += [Host(101, "PS5-1", 2, "Консоли", False, False, True), Host(102, "ps5 2", 2, "Консоли", False, False, True),
+                                Host(103, "XBOX-1", 2, "Консоли", True, False, True)]
+        else:
+            self.hosts_list = [Host(base + i, f"ПК-{i}", 1, "Игровые ПК", i == 2, False, True) for i in range(1, 4)]
+            self.hosts_list += [Host(base + 50, "VR-1", 2, "Консоли", False, False, True)]
+        self.next_id = base + 200
+
+    def clubs(self):
+        return [{"id": 1, "name": "Демо-клуб", "address": "ул. Ленина, 1"},
+                {"id": 2, "name": "Демо Север", "address": "пр. Мира, 15"},
+                {"id": 3, "name": "Демо Юг", "address": "ул. Южная, 7"}]
+
+    def authenticate(self):
+        return "t"
 
     def hosts(self):
         return list(self.hosts_list), self.groups
@@ -86,11 +114,14 @@ class DemoApp:
     def __init__(self, port):
         self.config = Config()
         self.config.update("general", {"web_port": port, "autostart": False, "poll_interval": 5}, save=False)
-        self.config.update("smartshell", {"login": "demo", "password": "demo", "company_id": "1", "club_name": "Демо-клуб"}, save=False)
+        self.config.upsert_club({"login": "demo", "password": "demo", "company_id": "1", "name": "Демо-клуб"})
+        self.config.upsert_club({"login": "demo", "password": "demo", "company_id": "2", "name": "Демо Север"})
         self.config.update("wizard_done", True, save=False)
         self.config.upsert_connector({"type": "demo", "name": "Демо-розетки", "enabled": True, "settings": {}})
-        self.ss = DemoSS()
-        self.engine = Engine(self.config, None, smartshell_factory=lambda *a, **k: self.ss)
+        self.ss = DemoSS("demo", "demo", "1")
+        self.engine = Engine(self.config, None, smartshell_factory=DemoSS)
+        import ssbridge.web
+        ssbridge.web.SmartShell = DemoSS  # поиск клубов и проверка входа без сети
         self.notifier = DemoNotifier()
 
 

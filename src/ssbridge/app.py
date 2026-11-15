@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 import threading
@@ -24,9 +25,21 @@ class App:
         self.server = Server(self)
         self.tray = None
         self._quit = threading.Event()
+        self._panel_lock = threading.Lock()
+        self._panel_launched = -1e9
 
     def open_panel(self) -> None:
-        winsys.open_panel(self.server.url)
+        """Показать окно панели: существующее — на передний план, иначе открыть одно новое."""
+        with self._panel_lock:
+            wins = winsys.find_panel_windows()
+            if wins:
+                winsys.focus_window(wins[0])
+                return
+            # окно запускается 1–3 с: повторные клики в это время не плодят копии
+            if time.monotonic() - self._panel_launched < 8:
+                return
+            self._panel_launched = time.monotonic()
+            winsys.open_panel(self.server.url)
 
     def run(self) -> None:
         journal.info(f"{APP_NAME} {__version__} запущен. Папка данных: {paths.data_dir()}", "system")
@@ -67,7 +80,18 @@ class App:
         self.shutdown()
 
     def quit(self) -> None:
+        """Полный выход: закрыть окно панели, значок в трее и остановить программу."""
+        if self._quit.is_set():
+            return
         self._quit.set()
+        # страховка: что бы ни зависло при остановке — процесс завершится
+        t = threading.Timer(15, lambda: os._exit(0))
+        t.daemon = True
+        t.start()
+        try:
+            winsys.close_panel_windows()
+        except Exception:
+            pass
         if self.tray:
             self.tray.stop()
 
@@ -89,6 +113,7 @@ def main(argv=None) -> int:
     parser.add_argument("--no-browser", action="store_true", help="не открывать окно панели при запуске")
     parser.add_argument("--debug", action="store_true", help="подробный журнал")
     parser.add_argument("--selftest", action="store_true", help="выполнить диагностику и выйти")
+    parser.add_argument("--quit", action="store_true", help="закрыть уже запущенную программу (для установщика)")
     args = parser.parse_args(argv)
 
     # pythonw / windowed exe: stdout отсутствует
@@ -111,17 +136,49 @@ def main(argv=None) -> int:
         return 0 if ok else 1
 
     if not winsys.acquire_single_instance():
-        # уже запущено — просто открываем панель существующего экземпляра
-        try:
-            port = (paths.data_dir() / "port.txt").read_text().strip()
-            url = f"http://127.0.0.1:{port}/"
-            urllib.request.urlopen(url + "api/state", timeout=3)
-            winsys.open_panel(url)
-        except Exception:
-            pass
-        return 0
+        return _quit_running() if args.quit else _activate_running(args)
+    if args.quit:
+        return 0  # программа не запущена
 
     App(args).run()
+    # не ждём фоновых потоков (сетевые запросы и т.п.) — программа закрывается сразу
+    logging.shutdown()
+    os._exit(0)
+
+
+def _post_running(path: str, timeout: float = 5) -> None:
+    port = (paths.data_dir() / "port.txt").read_text().strip()
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=b"{}", method="POST",
+                                 headers={"X-SSB": "1", "Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=timeout).read()
+
+
+def _quit_running() -> int:
+    """Попросить запущенную копию закрыться и дождаться этого (до 10 с)."""
+    try:
+        _post_running("/api/app/quit")
+    except Exception:
+        return 1
+    for _ in range(40):
+        time.sleep(0.25)
+        if winsys.acquire_single_instance():
+            return 0
+    return 1
+
+
+def _activate_running(args) -> int:
+    """Программа уже запущена: показать её окно вместо запуска второй копии."""
+    if args.minimized:
+        return 0  # повторный автозапуск — ничего не делаем
+    try:
+        wins = winsys.find_panel_windows()
+        if wins:
+            winsys.focus_window(wins[0])
+            return 0
+        winsys.allow_foreground()
+        _post_running("/api/app/show")
+    except Exception as e:
+        journal.warning(f"Не удалось показать окно уже запущенной программы: {e}", "system")
     return 0
 
 

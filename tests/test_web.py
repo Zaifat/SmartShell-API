@@ -54,11 +54,11 @@ def test_dns_rebinding_blocked(server):
 
 
 def test_config_masks_secrets(server, tmp_config):
-    tmp_config.update("smartshell", {"login": "7900", "password": "topsecret"})
+    tmp_config.upsert_club({"login": "7900", "password": "topsecret", "company_id": "3"})
     st, body = req(server, "GET", "/api/config")
     assert b"topsecret" not in body
     data = json.loads(body)
-    assert data["smartshell"]["login"] == "7900"
+    assert data["clubs"][0]["login"] == "7900"
 
 
 def test_connector_types_and_crud(server, tmp_config):
@@ -140,7 +140,7 @@ class _SS:
 @pytest.fixture
 def hserver(tmp_config):
     tmp_config.update("general", {"web_port": 18770})
-    tmp_config.update("smartshell", {"login": "l", "password": "p", "company_id": "1"})
+    tmp_config.upsert_club({"login": "l", "password": "p", "company_id": "1", "name": "Клуб"})
     conn = tmp_config.upsert_connector({"type": "test_sockets", "name": "Розетки", "settings": {}})
     app = FakeApp(tmp_config)
     ss = _SS()
@@ -216,4 +216,63 @@ def test_hosts_endpoint(hserver):
     srv, cfg, cid, _ = hserver
     st, data = req(srv, "GET", "/api/hosts?refresh=1")
     data = json.loads(data)
-    assert data["hosts"][0]["alias"] == "ps5 1" and data["groups"][0]["title"] == "Консоли"
+    club = data["clubs"][0]
+    assert club["name"] == "Клуб" and club["ok"]
+    assert club["hosts"][0]["alias"] == "ps5 1" and club["groups"][0]["title"] == "Консоли"
+    assert club["hosts"][0]["club_id"] == cfg.clubs()[0]["id"]
+
+
+def test_binding_gets_club_id(hserver):
+    srv, cfg, cid, _ = hserver
+    st, r = post(srv, "/api/bindings/add", {"host_id": 10, "host_alias": "ps5 1", "connector_id": cid, "device_id": "d1"})
+    assert r["binding"]["club_id"] == cfg.clubs()[0]["id"]  # клуб один — подставляется сам
+
+
+def test_clubs_api(hserver):
+    srv, cfg, cid, ss = hserver
+    first = cfg.clubs()[0]
+    # второй клуб
+    st, r = post(srv, "/api/clubs", {"login": "x", "password": "y", "company_id": "2", "name": "Север"})
+    assert st == 200 and r["club"]["password"] != "y" and len(cfg.clubs()) == 2
+    second = r["club"]["id"]
+    # при двух клубах клуб нужно указать явно
+    st, r = post(srv, "/api/bindings/add", {"host_id": 10, "connector_id": cid, "device_id": "d1"})
+    assert st == 400 and "клуб" in r["error"]
+    st, r = post(srv, "/api/bindings/add", {"club_id": second, "host_id": 10, "host_alias": "ps5 1", "connector_id": cid, "device_id": "d1"})
+    assert st == 200 and r["binding"]["club_id"] == second
+    # дубликат клуба
+    st, r = post(srv, "/api/clubs", {"login": "x", "password": "y", "company_id": "2"})
+    assert st == 400 and "уже добавлен" in r["error"]
+    # хосты обоих клубов
+    st, data = req(srv, "GET", "/api/hosts?refresh=1")
+    assert [c["name"] for c in json.loads(data)["clubs"]] == ["Клуб", "Север"]
+    st, data = req(srv, "GET", "/api/hosts?club=" + second)
+    assert [c["name"] for c in json.loads(data)["clubs"]] == ["Север"]
+    # переименование с маской пароля не затирает пароль
+    st, r = post(srv, "/api/clubs", {"id": first["id"], "name": "Центр", "password": "••••••••"})
+    assert st == 200 and cfg.club(first["id"])["password"] == "p" and cfg.club(first["id"])["name"] == "Центр"
+    # состояние
+    st, data = req(srv, "GET", "/api/state")
+    assert len(json.loads(data)["clubs"]) == 2
+    # удаление клуба удаляет его привязки
+    st, r = post(srv, "/api/clubs/delete", {"id": second})
+    assert st == 200 and len(cfg.clubs()) == 1 and cfg.bindings() == []
+
+
+def test_clubs_add_many(hserver):
+    srv, cfg, cid, ss = hserver
+    st, r = post(srv, "/api/clubs/add-many", {"login": "acc", "password": "pw", "clubs": [
+        {"company_id": "21", "name": "А"}, {"company_id": "22", "name": "Б"}]})
+    assert st == 200 and [c["name"] for c in r["clubs"]] == ["А", "Б"]
+    assert {c["company_id"] for c in cfg.clubs()} == {"1", "21", "22"}
+    assert all(c["password"] == "pw" for c in cfg.clubs() if c["company_id"] in ("21", "22"))
+
+
+def test_virtual_host_requires_club_when_many(hserver):
+    srv, cfg, cid, ss = hserver
+    post(srv, "/api/clubs", {"login": "x", "password": "y", "company_id": "2", "name": "Север"})
+    st, r = post(srv, "/api/hosts/virtual", {"alias": "Xbox"})
+    assert st == 400 and "клуб" in r["error"]
+    kid = cfg.clubs()[0]["id"]
+    st, r = post(srv, "/api/hosts/virtual", {"alias": "Xbox", "club_id": kid})
+    assert st == 200 and cfg.virtual_hosts()[0]["club_id"] == kid

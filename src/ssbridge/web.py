@@ -49,7 +49,8 @@ class Api:
     def get_config(self, q, body):
         snap = self.config.snapshot()
         snap.pop("virtual_hosts", None)
-        snap["virtual_hosts"] = [{"host_id": v["host_id"], "alias": v.get("alias")} for v in self.config.virtual_hosts()]
+        snap["virtual_hosts"] = [{"host_id": v["host_id"], "alias": v.get("alias"), "club_id": v.get("club_id", "")}
+                                 for v in self.config.virtual_hosts()]
         snap["data_dir"] = str(paths.data_dir())
         return mask_tree(snap)
 
@@ -83,21 +84,23 @@ class Api:
         self.config.update("wizard_done", True)
         return {"ok": True}
 
-    # ---------- SmartShell
+    # ---------- SmartShell: клубы (аккаунты)
     def _ss_from_body(self, body) -> SmartShell:
-        old = self.config.get("smartshell")
-        data = unmask_tree(body, old)
-        return SmartShell(data.get("login", ""), data.get("password", ""), data.get("company_id", "") or "0",
-                          data.get("user_agent", ""))
+        old = self.config.club(body.get("id") or "") or {}
+        data = unmask_tree({k: body.get(k, old.get(k, "")) for k in ("login", "password", "company_id", "user_agent")}, old)
+        return SmartShell(str(data.get("login") or "").strip(), data.get("password") or "",
+                          str(data.get("company_id") or "").strip() or "0", data.get("user_agent") or "")
 
     def post_smartshell_clubs(self, q, body):
+        """Клубы, доступные по логину и паролю."""
         ss = self._ss_from_body(body)
         if not ss.login_name or not ss.password:
             raise BridgeError("введите логин и пароль SmartShell")
         clubs = ss.clubs()
         if not clubs:
             raise BridgeError("клубы не найдены — проверьте логин и пароль")
-        return {"clubs": clubs}
+        added = {str(c.get("company_id")): c["id"] for c in self.config.clubs()}
+        return {"clubs": [dict(c, added=str(c.get("id")) in added, club_id=added.get(str(c.get("id")), "")) for c in clubs]}
 
     def post_smartshell_test(self, q, body):
         ss = self._ss_from_body(body)
@@ -105,57 +108,108 @@ class Api:
         hosts, groups = ss.hosts()
         return {"ok": True, "message": f"Вход выполнен. Хостов: {len(hosts)}, групп: {len(groups)}, активных сеансов: {sum(h.active for h in hosts)}"}
 
-    def post_smartshell(self, q, body):
-        old = self.config.get("smartshell")
-        new = unmask_tree({k: v for k, v in body.items() if k in old}, old)
-        new["company_id"] = str(new.get("company_id", "")).strip()
-        self.config.update("smartshell", new)
-        journal.info("Настройки SmartShell сохранены", "config")
+    def post_club(self, q, body):
+        """Добавить или изменить клуб."""
+        is_new = not body.get("id")
+        club = self.config.upsert_club(body)
+        journal.info(f"Клуб SmartShell «{club['name']}» {'добавлен' if is_new else 'сохранён'}", "config")
+        self.engine.run_now()
+        return {"ok": True, "club": mask_tree(club)}
+
+    def post_clubs_add_many(self, q, body):
+        """Добавить сразу несколько клубов одного аккаунта."""
+        items = body.get("clubs") or []
+        if not items:
+            raise BridgeError("не выбран ни один клуб")
+        added = []
+        for c in items:
+            club = self.config.upsert_club({"login": body.get("login"), "password": body.get("password"),
+                                            "user_agent": body.get("user_agent", ""),
+                                            "company_id": c.get("company_id"), "name": c.get("name")})
+            added.append(mask_tree(club))
+        journal.info("Добавлены клубы SmartShell: " + ", ".join(c["name"] for c in added), "config")
+        self.engine.run_now()
+        return {"ok": True, "clubs": added}
+
+    def post_club_delete(self, q, body):
+        club = self.config.club(body.get("id") or "")
+        if not club:
+            raise BridgeError("клуб не найден")
+        nb = sum(1 for b in self.config.bindings() if b.get("club_id") == club["id"])
+        self.config.delete_club(club["id"])
+        journal.info(f"Клуб «{club['name']}» удалён из программы (привязок удалено: {nb})", "config")
         self.engine.run_now()
         return {"ok": True}
 
+    def _club_id(self, body) -> str:
+        """id клуба из запроса; если клуб один — его можно не указывать."""
+        kid = body.get("club_id") or ""
+        if kid:
+            if not self.config.club(kid):
+                raise BridgeError("клуб не найден")
+            return kid
+        clubs = self.config.clubs()
+        if len(clubs) == 1:
+            return clubs[0]["id"]
+        raise BridgeError("не выбран клуб" if clubs else "сначала добавьте клуб SmartShell")
+
     def get_hosts(self, q, body):
-        if q.get("refresh") or not self.engine.hosts or time.time() - self.engine.hosts_ts > 60:
-            self.engine.smartshell()
-            self.engine.refresh_hosts()
-        vh = {v["host_id"] for v in self.config.virtual_hosts()}
-        return {
-            "hosts": sorted([dict(h.to_dict(), virtual=h.id in vh) for h in self.engine.hosts.values()],
-                            key=lambda h: (h["group"], _natural(h["alias"]))),
-            "groups": self.engine.groups,
-        }
+        """Хосты всех клубов (или одного: ?club=id)."""
+        self.engine._sync_config()
+        vh = {(v.get("club_id", ""), v["host_id"]) for v in self.config.virtual_hosts()}
+        out = []
+        for st in list(self.engine.clubs.values()):
+            if q.get("club") and q["club"] != st.id:
+                continue
+            err = ""
+            if q.get("refresh") or not st.hosts or time.time() - st.hosts_ts > 60:
+                try:
+                    self.engine.refresh_club(st)
+                except Exception as e:
+                    err = describe(e)
+            out.append({
+                "id": st.id, "name": st.name, "ok": not err and bool(st.hosts_ts), "error": err,
+                "hosts": sorted([dict(h.to_dict(), virtual=(st.id, h.id) in vh, club_id=st.id) for h in st.hosts.values()],
+                                key=lambda h: (h["group"], _natural(h["alias"]))),
+                "groups": st.groups,
+            })
+        if len(out) == 1 and out[0]["error"] and not out[0]["hosts"]:
+            raise BridgeError(out[0]["error"])
+        return {"clubs": out}
 
     def post_virtual_host(self, q, body):
         alias = (body.get("alias") or "").strip()
         if not alias:
             raise BridgeError("укажите название хоста")
-        ss = self.engine.smartshell()
-        self.engine.refresh_hosts()
-        if any(h.alias.lower() == alias.lower() for h in self.engine.hosts.values()):
+        kid = self._club_id(body)
+        st = self.engine.club(kid)
+        ss = st.ss
+        self.engine.refresh_club(st)
+        if any(h.alias.lower() == alias.lower() for h in st.hosts.values()):
             raise BridgeError(f"хост «{alias}» уже есть на карте клуба")
-        group_id = body.get("group_id") or (self.engine.groups[0]["id"] if self.engine.groups else None)
+        group_id = body.get("group_id") or (st.groups[0]["id"] if st.groups else None)
         if not group_id:
             raise BridgeError("в SmartShell нет ни одной группы хостов")
         token = ss.register_host(alias, int(group_id))
-        self.engine.refresh_hosts()
-        host = next((h for h in self.engine.hosts.values() if h.alias == alias), None)
+        self.engine.refresh_club(st)
+        host = next((h for h in st.hosts.values() if h.alias == alias), None)
         if not host:
             raise BridgeError("хост создан, но не найден в списке — обновите страницу")
-        self.config.add_virtual_host(host.id, alias, token)
+        self.config.add_virtual_host(host.id, alias, token, kid)
         try:
             ss.host_keepalive(token)
         except Exception as e:
             journal.warning(f"Хост «{alias}» создан, но не вышел в сеть: {describe(e)}", "smartshell")
         binding = None
         if body.get("connector_id") and body.get("device_id"):
-            binding, _ = self.config.add_binding({"host_id": host.id, "host_alias": host.alias, **{
+            binding, _ = self.config.add_binding({"club_id": kid, "host_id": host.id, "host_alias": host.alias, **{
                 k: body[k] for k in ("connector_id", "device_id", "device_name") if k in body}})
             journal.success(f"Привязка: {host.alias} → {binding['device_name'] or binding['device_id']}", "config")
             self.engine.run_now()
-        return {"ok": True, "host": host.to_dict(), "binding": binding}
+        return {"ok": True, "host": dict(host.to_dict(), club_id=kid), "binding": binding}
 
     def delete_virtual_host(self, q, body):
-        self.config.remove_virtual_host(int(body.get("host_id")))
+        self.config.remove_virtual_host(int(body.get("host_id")), body.get("club_id") or None)
         journal.info("Виртуальный хост удалён из программы (с карты клуба удалите его в SmartShell)", "smartshell")
         return {"ok": True}
 
@@ -243,8 +297,12 @@ class Api:
         for b in body.get("bindings") or []:
             if not b.get("connector_id") or not b.get("device_id") or not (b.get("host_id") or b.get("host_alias")):
                 continue
+            try:
+                kid = self._club_id(b)
+            except BridgeError:
+                continue
             items.append({
-                "id": b.get("id") or new_id("b"),
+                "id": b.get("id") or new_id("b"), "club_id": kid,
                 "host_id": b.get("host_id"), "host_alias": b.get("host_alias", ""),
                 "connector_id": b["connector_id"], "device_id": b["device_id"], "device_name": b.get("device_name", ""),
                 "enabled": bool(b.get("enabled", True)), "off_delay": max(0, int(b.get("off_delay") or 0)),
@@ -257,11 +315,13 @@ class Api:
 
     def post_auto_match(self, q, body):
         """Найти пары «хост SmartShell ↔ устройство» с одинаковыми названиями."""
-        self.engine.smartshell()
         self.engine.refresh_hosts()
         existing = {(b.get("connector_id"), b.get("device_id")) for b in self.config.bindings()}
-        bound_hosts = {str(b.get("host_id")) for b in self.config.bindings()}
-        hosts = {_norm(h.alias): h for h in self.engine.hosts.values()}
+        bound_hosts = {(b.get("club_id"), str(b.get("host_id"))) for b in self.config.bindings()}
+        hosts: dict[str, list] = {}
+        for st in self.engine.clubs.values():
+            for h in st.hosts.values():
+                hosts.setdefault(_norm(h.alias), []).append((st.id, h))
         found = []
         for conf in self.config.connectors():
             try:
@@ -272,9 +332,12 @@ class Api:
                 journal.warning(f"Автоподбор: «{conf.get('name')}» недоступна — {describe(e)}", "config")
                 continue
             for d in devs:
-                h = hosts.get(_norm(d.name))
-                if h and (conf["id"], d.id) not in existing and str(h.id) not in bound_hosts:
-                    found.append({"id": new_id("b"), "host_id": h.id, "host_alias": h.alias, "connector_id": conf["id"],
+                cands = hosts.get(_norm(d.name)) or []
+                if len(cands) != 1:  # не найдено или одинаковые названия в разных клубах
+                    continue
+                kid, h = cands[0]
+                if (conf["id"], d.id) not in existing and (kid, str(h.id)) not in bound_hosts:
+                    found.append({"id": new_id("b"), "club_id": kid, "host_id": h.id, "host_alias": h.alias, "connector_id": conf["id"],
                                   "device_id": d.id, "device_name": d.name, "enabled": True, "off_delay": 0,
                                   "invert": False, "on_in_service": False})
         return {"matches": found}
@@ -310,6 +373,7 @@ class Api:
             return {"systems": list(ex.map(load, confs))}
 
     def _check_binding_target(self, body):
+        body["club_id"] = self._club_id(body)
         if not self.config.connector(body.get("connector_id") or ""):
             raise BridgeError("система умного дома не найдена")
         if not body.get("device_id"):
@@ -373,6 +437,15 @@ class Api:
         winsys.open_url(str(body.get("url") or ""))
         return {"ok": True}
 
+    def post_app_show(self, q, body):
+        threading.Thread(target=self.app.open_panel, daemon=True).start()
+        return {"ok": True}
+
+    def post_app_quit(self, q, body):
+        journal.info("Выход по команде из панели управления", "system")
+        threading.Timer(0.3, self.app.quit).start()
+        return {"ok": True}
+
     def post_open_logs(self, q, body):
         winsys.open_folder(paths.logs_dir())
         return {"ok": True}
@@ -400,7 +473,9 @@ ROUTES = {
     ("POST", "/api/wizard/done"): "post_wizard_done",
     ("POST", "/api/smartshell/clubs"): "post_smartshell_clubs",
     ("POST", "/api/smartshell/test"): "post_smartshell_test",
-    ("POST", "/api/smartshell"): "post_smartshell",
+    ("POST", "/api/clubs"): "post_club",
+    ("POST", "/api/clubs/add-many"): "post_clubs_add_many",
+    ("POST", "/api/clubs/delete"): "post_club_delete",
     ("GET", "/api/hosts"): "get_hosts",
     ("POST", "/api/hosts/virtual"): "post_virtual_host",
     ("POST", "/api/hosts/virtual/delete"): "delete_virtual_host",
@@ -423,6 +498,8 @@ ROUTES = {
     ("GET", "/api/logs"): "get_logs",
     ("POST", "/api/logs/open"): "post_open_logs",
     ("POST", "/api/open-url"): "post_open_url",
+    ("POST", "/api/app/show"): "post_app_show",
+    ("POST", "/api/app/quit"): "post_app_quit",
 }
 
 
@@ -549,7 +626,7 @@ class Server:
                         return self._json(401, {"error": "Требуется PIN-код", "need_pin": True})
                     if method == "POST" and self.headers.get("X-SSB") != "1":
                         return self._json(403, {"error": "forbidden"})
-                    if path == "/api/open-url" and not self._is_local_client():
+                    if path in ("/api/open-url", "/api/app/show", "/api/app/quit") and not self._is_local_client():
                         # с телефона/другого ПК ссылка откроется на их устройстве
                         return self._json(403, {"error": "только для локального окна"})
                     name = ROUTES.get((method, path))
@@ -583,6 +660,10 @@ class Server:
                 ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
                 if ctype.startswith("text/") or ctype in ("application/javascript",):
                     ctype += "; charset=utf-8"
-                self._send(200, target.read_bytes(), ctype)
+                data = target.read_bytes()
+                if target.name == "index.html":
+                    title = paths.panel_title().replace("&", "&amp;").replace("<", "&lt;")
+                    data = data.replace(b"<title>SmartShell Bridge</title>", f"<title>{title}</title>".encode())
+                self._send(200, data, ctype)
 
         return Handler

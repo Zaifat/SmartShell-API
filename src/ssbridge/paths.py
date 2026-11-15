@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import APP_ID
+from . import APP_ID, APP_NAME
 
 
 def is_frozen() -> bool:
@@ -52,3 +52,13 @@ def logs_dir() -> Path:
 
 def config_path() -> Path:
     return data_dir() / "config.json"
+
+
+def panel_title() -> str:
+    """Заголовок окна панели. У портативных/тестовых копий он свой —
+    так окна разных копий программы не путаются между собой."""
+    if os.environ.get("SSBRIDGE_DATA"):
+        return f"{APP_NAME} [{Path(os.environ['SSBRIDGE_DATA']).name}]"
+    if (exe_dir() / "portable.txt").exists():
+        return f"{APP_NAME} [портативная, {exe_dir().name}]"
+    return APP_NAME

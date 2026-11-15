@@ -1,5 +1,5 @@
 ﻿; Установщик SmartShell Bridge (Inno Setup 6)
-; Сборка: ISCC.exe /DAppVersion=2.1.0 build\installer.iss   (см. build.ps1)
+; Сборка: ISCC.exe /DAppVersion=2.2.0 build\installer.iss   (см. build.ps1)
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -89,7 +89,10 @@ var
   ResultCode: Integer;
   Cmd: String;
 begin
-  // Останавливаем только копию программы из папки установки
+  // Сначала просим программу закрыться самой (вместе с окном панели)
+  if FileExists(ExpandConstant('{app}\{#AppExe}')) then
+    Exec(ExpandConstant('{app}\{#AppExe}'), '--quit', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // Затем на всякий случай останавливаем только копию программы из папки установки
   // (портативные копии в других папках не трогаем).
   Cmd := '-NoProfile -NonInteractive -Command "Get-Process SmartShellBridge -ErrorAction SilentlyContinue | ' +
          'Where-Object { $_.Path -like ''' + ExpandConstant('{app}') + '\*'' } | Stop-Process -Force"';

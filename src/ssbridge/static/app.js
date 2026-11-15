@@ -62,7 +62,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const S = { state: null, config: null, types: [], hosts: null, groups: [], devices: {}, logs: [], logAfter: 0, page: "dashboard",
-  unseenErrors: 0, bindingsDraft: null, dirty: false };
+  unseenErrors: 0, bindingsDraft: null, dirty: false, fails: 0, quitting: false };
 
 async function api(path, body, method) {
   const opt = { method: method || (body !== undefined ? "POST" : "GET"), headers: { "X-SSB": "1" } };
@@ -159,7 +159,7 @@ function go(page) {
   if (S.page === "bindings" && page !== "bindings" && S.dirty && !confirm("Есть несохранённые изменения привязок. Уйти без сохранения?")) return;
   if (page !== "bindings") { S.dirty = false; S.bindingsDraft = null; }
   S.page = page;
-  location.hash = page;
+  history.replaceState(null, "", "#" + page);  // без новых записей истории — окно можно закрыть из скрипта
   $$("#nav a").forEach(a => a.classList.toggle("active", a.dataset.page === page));
   render();
 }
@@ -184,9 +184,12 @@ async function pollState() {
     else b.hidden = true;
     if (S.page === "dashboard") renderDashboardLive();
     if (!st.wizard_done && !S.wizardShown) { S.wizardShown = true; wizard(); }
+    S.fails = 0;
+    $("#closed").hidden = true;
   } catch (e) {
     $("#status-pill .dot").className = "dot error";
     $("#status-text").textContent = "Нет связи с программой";
+    if (++S.fails >= 3 || S.quitting) showClosed();
   }
 }
 
@@ -242,7 +245,7 @@ function renderDashboardLive() {
     const err = s.error ? `<div class="err-text">${esc(s.error)}</div>` : "";
     return `<div class="tile ${on ? "on" : ""} ${s.error ? "err" : ""}">
       <div class="tile-top"><div class="power ${on ? "on" : unk ? "unk" : ""}" title="${on ? "Включено" : unk ? "Состояние неизвестно" : "Выключено"}">${icon("power")}</div>
-        <div class="grow" style="min-width:0"><div class="tile-name">${esc(b.host_alias || "—")}</div><div class="tile-dev">${esc(b.device_name || b.device_id)} · ${esc(connName(b.connector_id))}</div></div></div>
+        <div class="grow" style="min-width:0"><div class="tile-name">${esc(b.host_alias || "—")}</div><div class="tile-dev">${esc(b.device_name || b.device_id)} · ${esc(connName(b.connector_id))}${(st.clubs || []).length > 1 && b.club_name ? ` · ${esc(b.club_name)}` : ""}</div></div></div>
       <div class="row">${sess}${extra}</div>${err}
       <div class="row small muted"><span class="grow">${s.last_action ? `${esc(s.last_action)} в ${fmtTime(s.last_action_ts)}` : "&nbsp;"}</span>
         ${s.hold_in ? `<button class="btn sm" data-release="${b.id}" title="Вернуть автоматическое управление">Авто</button>` : ""}
@@ -258,7 +261,8 @@ function renderDashboardLive() {
     <div class="grid g4" style="margin-bottom:22px">
       <div class="card stat"><div class="label">${icon("monitor").replace("<svg", '<svg width="14"')} SmartShell</div>
         <div class="value">${st.smartshell.active}<span class="muted" style="font-size:16px"> / ${st.smartshell.hosts}</span></div>
-        <div class="hint">${st.smartshell.ok === false ? `<span style="color:var(--err)">${esc(st.smartshell.message)}</span>` : "активных сеансов" + (st.smartshell.club ? " · " + esc(st.smartshell.club) : "")}</div></div>
+        <div class="hint">${st.smartshell.ok === false && (st.clubs || []).length < 2 ? `<span style="color:var(--err)">${esc(st.smartshell.message)}</span>`
+          : "активных сеансов" + ((st.clubs || []).length > 1 ? ` · клубов: ${st.clubs.length}` : st.smartshell.club ? " · " + esc(st.smartshell.club) : "")}</div></div>
       <div class="card stat"><div class="label">${icon("home").replace("<svg", '<svg width="14"')} Умный дом</div>
         <div class="value">${cOk}<span class="muted" style="font-size:16px"> / ${conns.length}</span></div><div class="hint">систем на связи</div></div>
       <div class="card stat"><div class="label">${icon("link").replace("<svg", '<svg width="14"')} Привязки</div>
@@ -266,6 +270,9 @@ function renderDashboardLive() {
       <div class="card stat"><div class="label">${icon("shield").replace("<svg", '<svg width="14"')} Запросы к SmartShell</div>
         <div class="value">${st.smartshell.rpm_used}<span class="muted" style="font-size:16px"> / 20</span></div><div class="hint">за последнюю минуту (лимит API)</div></div>
     </div>
+    ${(st.clubs || []).length > 1 ? `<div class="club-strip">${st.clubs.map(c => `<div class="club-chip ${c.ok === false ? "err" : ""}" title="${esc(c.message)}">
+        <span class="dot ${c.ok ? "ok" : c.ok === false ? "error" : ""}"></span><b>${esc(c.name)}</b>
+        <span class="muted">${c.ok === false ? "нет связи" : `${c.active} / ${c.hosts}`}</span></div>`).join("")}</div>` : ""}
     ${st.bindings.length ? `<div class="grid g3">${tiles}</div>` :
       `<div class="card empty">${icon("link")}<h2>Пока нет привязок</h2><p>Укажите, какое устройство включать на каждом хосте SmartShell.</p>
        <div class="row" style="justify-content:center"><button class="btn primary" onclick="wizard()">Мастер настройки</button><button class="btn" onclick="go('bindings')">Привязать устройства</button></div></div>`}`;
@@ -282,7 +289,16 @@ function renderDashboardLive() {
 // ================================================================= HOSTS (привязки)
 async function ensureHosts(refresh = false) {
   const r = await api("/api/hosts" + (refresh ? "?refresh=1" : ""));
-  S.hosts = r.hosts; S.groups = r.groups;
+  S.clubsHosts = r.clubs;
+  selectClub(hostsView.club);
+}
+function selectClub(id) {
+  const list = S.clubsHosts || [];
+  const c = list.find(x => x.id === id) || list[0];
+  hostsView.club = c ? c.id : "";
+  S.hosts = c ? c.hosts : [];
+  S.groups = c ? c.groups : [];
+  S.hostsError = c ? c.error : "";
 }
 async function ensureDevices(cid, refresh = false) {
   if (!cid) return [];
@@ -306,7 +322,8 @@ function flatDevices() {
   (S.allDevices || []).forEach(sys => sys.devices.forEach(d => out.push({ ...d, connector_id: sys.id, sys })));
   return out;
 }
-function bindingsOf(hostId) { return (S.config?.bindings || []).filter(b => String(b.host_id) === String(hostId)); }
+function inClub(b) { return !b.club_id || !hostsView.club || b.club_id === hostsView.club; }
+function bindingsOf(hostId) { return (S.config?.bindings || []).filter(b => String(b.host_id) === String(hostId) && inClub(b)); }
 function bindingOfDevice(cid, did) { return (S.config?.bindings || []).find(b => b.connector_id === cid && b.device_id === did); }
 function liveDeviceState(b) {
   const st = (S.state?.bindings || []).find(x => x.id === b.id);
@@ -319,11 +336,11 @@ function suggestions() {
   S.hosts.forEach(h => {
     if (bindingsOf(h.id).length) return;
     const d = devs.find(x => norm(x.name) === norm(h.alias) && !out.some(o => o.device_id === x.id && o.connector_id === x.connector_id));
-    if (d) out.push({ host_id: h.id, host_alias: h.alias, connector_id: d.connector_id, device_id: d.id, device_name: d.name });
+    if (d) out.push({ club_id: hostsView.club, host_id: h.id, host_alias: h.alias, connector_id: d.connector_id, device_id: d.id, device_name: d.name });
   });
   return out;
 }
-const hostsView = { q: "", mode: "all" };
+const hostsView = { q: "", mode: "all", club: "" };
 
 PAGES.bindings = async el => {
   el.innerHTML = `<div class="head"><div><h1>Хосты и устройства</h1><p class="sub">Устройство включается, когда на хосте идёт сеанс, и выключается, когда сеанс заканчивается</p></div>
@@ -338,7 +355,7 @@ PAGES.bindings = async el => {
 async function reloadHostsPage(refresh) {
   await loadConfig();
   S.hostsError = "";
-  const hostsP = ensureHosts(refresh).catch(e => { S.hostsError = e.message; S.hosts = S.hosts || []; });
+  const hostsP = ensureHosts(refresh).catch(e => { S.hostsError = e.message; S.hosts = S.hosts || []; S.clubsHosts = S.clubsHosts || []; });
   const devP = loadAllDevices(refresh).catch(e => { S.allDevices = []; S.devicesError = e.message; });
   await hostsP;
   drawHosts();
@@ -351,15 +368,23 @@ function drawHosts() {
   if (!box) return;
   const conns = S.config.connectors;
   const hosts = S.hosts || [];
-  if (S.hostsError && !hosts.length) {
-    box.innerHTML = `<div class="card empty">${icon("monitor")}<h2>Нет связи со SmartShell</h2><p>${esc(S.hostsError)}</p>
-      <button class="btn primary" onclick="go('smartshell')">Настроить SmartShell</button></div>`;
+  const clubsH = S.clubsHosts || [];
+  if (!(S.config.clubs || []).length) {
+    box.innerHTML = `<div class="card empty">${icon("monitor")}<h2>Клуб SmartShell не подключён</h2><p>Добавьте клуб — и здесь появятся его хосты.</p>
+      <button class="btn primary" onclick="addClubDialog(() => go('bindings'))">${icon("plus")}Добавить клуб</button></div>`;
     hydrateIcons(box); return;
+  }
+  const tabs = clubsH.length > 1 ? `<div class="seg club-seg">${clubsH.map(c => `<button data-club="${c.id}" class="${c.id === hostsView.club ? "on" : ""}">
+      ${esc(c.name)} <span class="cnt">${c.hosts.length}</span>${c.error ? ' <span class="dev-dot err" title="нет связи"></span>' : ""}</button>`).join("")}</div>` : "";
+  if (S.hostsError && !hosts.length) {
+    box.innerHTML = `${tabs}<div class="card empty">${icon("monitor")}<h2>Нет связи со SmartShell${clubsH.length > 1 ? ` («${esc(clubName(hostsView.club))}»)` : ""}</h2><p>${esc(S.hostsError)}</p>
+      <button class="btn primary" onclick="go('smartshell')">Настроить SmartShell</button></div>`;
+    hydrateIcons(box); bindClubTabs(box); return;
   }
   const sugg = suggestions();
   const q = norm(hostsView.q);
   const known = new Set(hosts.map(h => String(h.id)));
-  const orphans = S.config.bindings.filter(b => !known.has(String(b.host_id)));
+  const orphans = S.hostsError ? [] : S.config.bindings.filter(b => (b.club_id || hostsView.club) === hostsView.club && !known.has(String(b.host_id)));
   const filtered = hosts.filter(h => {
     const bound = bindingsOf(h.id).length > 0;
     if (hostsView.mode === "bound" && !bound) return false;
@@ -395,7 +420,7 @@ function drawHosts() {
       <div class="host-act"><button class="btn sm ${bs.length ? "ghost" : "primary"}" data-pick="${h.id}">${icon("plus")}${bs.length ? "Ещё" : "Привязать устройство"}</button></div></div>`;
   };
 
-  box.innerHTML = `
+  box.innerHTML = `${tabs}
     ${!conns.length ? `<div class="banner info">Сначала добавьте систему умного дома, в которой находятся ваши розетки. <a href="#systems" onclick="go('systems');return false">Добавить систему →</a></div>` : ""}
     ${(S.allDevices || []).filter(s => !s.ok).map(s => `<div class="banner">«${esc(s.name)}» недоступна: ${esc(s.error)}</div>`).join("")}
     ${S.hostsError ? `<div class="banner">SmartShell: ${esc(S.hostsError)}</div>` : ""}
@@ -412,6 +437,7 @@ function drawHosts() {
       <div class="host-main"><div class="host-ic">${icon("alert")}</div><div><div class="host-name">${esc(b.host_alias || "#" + b.host_id)}</div><span class="tag err">удалён или переименован</span></div></div>
       <div class="host-devs">${chip(b)}</div><div class="host-act"></div></div>`).join("")}</div>` : ""}`;
   hydrateIcons(box);
+  bindClubTabs(box);
 
   const qi = $("#h-q");
   qi.oninput = () => { hostsView.q = qi.value; const pos = qi.selectionStart; drawHosts(); const n = $("#h-q"); n.focus(); n.setSelectionRange(pos, pos); };
@@ -425,7 +451,7 @@ function drawHosts() {
   $$("[data-pick]", box).forEach(b => b.onclick = () => {
     const h = hosts.find(x => String(x.id) === b.dataset.pick);
     devicePicker({ title: `Устройство для «${esc(h.alias)}»`, hint: h.alias, onPick: async d => {
-      await api("/api/bindings/add", { host_id: h.id, host_alias: h.alias, connector_id: d.connector_id, device_id: d.id, device_name: d.name });
+      await api("/api/bindings/add", { club_id: hostsView.club, host_id: h.id, host_alias: h.alias, connector_id: d.connector_id, device_id: d.id, device_name: d.name });
       toast(`${h.alias} → ${d.name}`, "ok");
       await loadConfig(); drawHosts();
     } });
@@ -437,6 +463,10 @@ function drawHosts() {
     await api("/api/bindings/delete", { id: bd.id });
     toast("Отвязано"); await loadConfig(); drawHosts();
   });
+}
+
+function bindClubTabs(box) {
+  $$("[data-club]", box).forEach(b => b.onclick = () => { selectClub(b.dataset.club); drawHosts(); });
 }
 
 function fmtDelay(s) { return s >= 60 ? `${Math.round(s / 6) / 10} мин` : `${s} с`; }
@@ -461,7 +491,7 @@ function devicePicker({ title, hint, onPick }) {
       const used = bindingOfDevice(d.connector_id, d.id);
       return `<div class="pick" data-c="${esc(d.connector_id)}" data-d="${esc(d.id)}">${sysIcon(d.sys.type, 30)}
         <div class="grow" style="min-width:0"><div class="pick-name">${esc(d.name)}</div><div class="small muted">${esc([d.sys.name, d.room, d.kind].filter(Boolean).join(" · "))}</div></div>
-        ${used ? `<span class="tag warn">уже у «${esc(used.host_alias)}»</span>` : ""}
+        ${used ? `<span class="tag warn">уже у «${esc(used.host_alias)}»${multiClub() && used.club_id !== hostsView.club ? ` (${esc(clubName(used.club_id))})` : ""}</span>` : ""}
         ${!d.online ? '<span class="tag err">не в сети</span>' : d.state === true ? '<span class="tag ok">вкл</span>' : d.state === false ? '<span class="tag">выкл</span>' : ""}</div>`;
     };
     let html = "";
@@ -491,7 +521,10 @@ function devicePicker({ title, hint, onPick }) {
 
 // ---- «Добавить приставку»: выбрать устройство → создать хост с тем же названием и привязать
 function consoleDialog() {
-  const pickGroup = () => (S.groups.find(g => /консол|приставк|playstation|xbox|ps\d|vr|sim/i.test(g.title)) || S.groups[0] || {}).id;
+  let club = hostsView.club;
+  const groupsOf = () => ((S.clubsHosts || []).find(c => c.id === club) || {}).groups || S.groups || [];
+  const pickGroup = () => (groupsOf().find(g => /консол|приставк|playstation|xbox|ps\d|vr|sim/i.test(g.title)) || groupsOf()[0] || {}).id;
+  const groupOptions = () => groupsOf().map(g => `<option value="${g.id}" ${g.id === pickGroup() ? "selected" : ""}>${esc(g.title)}</option>`).join("");
   let chosen = null, autoName = true;
   const m = modal({ title: "Добавить приставку", narrow: true, body: `
     <p class="muted" style="margin-top:0">Для приставок, ТВ, VR, симуляторов — всего, на чём нет шелла SmartShell. Программа создаст хост на карте клуба,
@@ -500,7 +533,9 @@ function consoleDialog() {
       <div class="f"><span class="muted">1. Устройство (розетка), которое включать</span>
         <div id="cd-dev" class="pick empty-pick">${icon("plus")}<span>Выбрать устройство</span></div></div>
       <label class="f"><span>2. Название хоста на карте клуба <b>*</b></span><input id="cd-name" placeholder="PS5-1"></label>
-      <label class="f"><span>3. Группа хостов</span><select id="cd-group">${S.groups.map(g => `<option value="${g.id}" ${g.id === pickGroup() ? "selected" : ""}>${esc(g.title)}</option>`).join("")}</select></label>
+      ${multiClub() ? `<label class="f"><span>Клуб</span><select id="cd-club">${(S.config.clubs || []).filter(c => c.enabled !== false)
+        .map(c => `<option value="${c.id}" ${c.id === club ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></label>` : ""}
+      <label class="f"><span>3. Группа хостов</span><select id="cd-group">${groupOptions()}</select></label>
     </div>`,
     foot: `<button class="btn" data-x>Отмена</button><button class="btn primary" id="cd-ok">${icon("check")}Создать</button>` });
   hydrateIcons(m.el);
@@ -517,15 +552,18 @@ function consoleDialog() {
     chosen = d; drawChosen();
     if (autoName || !nameIn.value) { nameIn.value = d.name; autoName = true; }
   } });
-  if (!S.groups.length) ensureHosts().then(() => { $("#cd-group", m.el).innerHTML = S.groups.map(g => `<option value="${g.id}" ${g.id === pickGroup() ? "selected" : ""}>${esc(g.title)}</option>`).join(""); }).catch(() => {});
+  const clubSel = $("#cd-club", m.el);
+  if (clubSel) clubSel.onchange = () => { club = clubSel.value; $("#cd-group", m.el).innerHTML = groupOptions(); };
+  if (!groupsOf().length) ensureHosts().then(() => { club = club || hostsView.club; $("#cd-group", m.el).innerHTML = groupOptions(); }).catch(() => {});
   $("#cd-ok", m.el).onclick = e => busy(e.currentTarget, async () => {
     const alias = nameIn.value.trim();
     if (!alias) { nameIn.focus(); throw new Error("Введите название хоста"); }
-    const body = { alias, group_id: +$("#cd-group", m.el).value || undefined };
+    const body = { alias, club_id: club || hostsView.club, group_id: +$("#cd-group", m.el).value || undefined };
     if (chosen) Object.assign(body, { connector_id: chosen.connector_id, device_id: chosen.id, device_name: chosen.name });
     const r = await api("/api/hosts/virtual", body);
     toast(chosen ? `Хост «${r.host.alias}» создан и привязан к «${chosen.name}»` : `Хост «${r.host.alias}» создан`, "ok");
     m.close();
+    hostsView.club = body.club_id;  // показать клуб, где создан хост
     if (S.page === "bindings") await reloadHostsPage(true);
   }).catch(() => {});
 }
@@ -722,62 +760,143 @@ async function devicesDialog(conn) {
   load();
 }
 
-// ================================================================= SMARTSHELL
+// ================================================================= SMARTSHELL (клубы)
+function clubState(id) { return (S.state?.clubs || []).find(c => c.id === id); }
+function clubName(id) { return (S.config?.clubs || []).find(c => c.id === id)?.name || ""; }
+function multiClub() { return (S.config?.clubs || []).length > 1; }
+
 PAGES.smartshell = async el => {
   await loadConfig();
-  const ss = S.config.smartshell;
+  const clubs = S.config.clubs || [];
   const vh = S.config.virtual_hosts || [];
-  el.innerHTML = `<div class="head"><div><h1>SmartShell</h1><p class="sub">Подключение к вашему клубу в SmartShell</p></div></div>
-    <div class="stack">
-    <div class="card"><h2>Учётная запись</h2>
-      <div class="form">${smartshellFields(ss)}</div>
-      <div id="ss-result"></div>
-      <div class="row" style="margin-top:16px"><button class="btn" id="ss-test">${icon("check")}Проверить подключение</button><button class="btn primary" id="ss-save">${icon("check")}Сохранить</button></div>
-      <div class="docs" style="margin-top:16px">Используйте логин и пароль администратора/владельца от <a href="https://billing.smartshell.gg" target="_blank">billing.smartshell.gg</a>.
-      Рекомендуем создать для программы отдельного сотрудника. Пароль хранится зашифрованным средствами Windows.
-      Программа учитывает лимит SmartShell API — не более 20 запросов в минуту.</div></div>
+  const card = c => {
+    const cs = clubState(c.id);
+    const tag = c.enabled === false ? '<span class="tag">Отключён</span>' : !cs || cs.ok === null ? '<span class="tag">Проверяется…</span>'
+      : cs.ok ? '<span class="tag ok">На связи</span>' : '<span class="tag err">Нет связи</span>';
+    const nb = S.config.bindings.filter(b => b.club_id === c.id).length;
+    const nv = vh.filter(v => v.club_id === c.id).length;
+    return `<div class="card sys-card"><div class="row"><div class="sys-icon club-ic">${icon("monitor")}</div>
+      <div class="grow" style="min-width:0"><div style="font-weight:600">${esc(c.name)}</div><div class="small muted">ID ${esc(c.company_id)} · логин ${esc(c.login)}</div></div>${tag}</div>
+      ${cs && cs.ok === false ? `<div class="small" style="color:var(--err)">${esc(cs.message)}</div>` : ""}
+      <div class="small muted">${cs && cs.ok ? `Хостов: ${cs.hosts}, идёт сеансов: ${cs.active} · ` : ""}Привязок: ${nb}${nv ? ` · приставок: ${nv}` : ""}</div>
+      <div class="row"><button class="btn sm" data-cedit="${c.id}">${icon("edit")}Изменить</button><button class="btn sm" data-ctest="${c.id}">${icon("check")}Проверить</button>
+        <button class="btn sm" data-chosts="${c.id}">${icon("link")}Хосты</button></div></div>`;
+  };
+  el.innerHTML = `<div class="head"><div><h1>SmartShell</h1><p class="sub">Клубы, которыми управляет программа. Можно подключить несколько клубов, в том числе с разных аккаунтов.</p></div>
+      <button class="btn primary" id="c-add">${icon("plus")}Добавить клуб</button></div>
+    ${clubs.length ? `<div class="grid g3">${clubs.map(card).join("")}</div>`
+      : `<div class="card empty">${icon("monitor")}<h2>Клуб не подключён</h2><p>Войдите с логином и паролем от billing.smartshell.gg — программа сама найдёт ваши клубы.</p>
+         <button class="btn primary" onclick="addClubDialog()">${icon("plus")}Добавить клуб</button></div>`}
+    <div class="docs" style="margin:16px 0">Используйте логин и пароль администратора или владельца от <a href="https://billing.smartshell.gg" target="_blank">billing.smartshell.gg</a>.
+      Рекомендуем создать для программы отдельного сотрудника. Пароли хранятся зашифрованными средствами Windows.
+      Лимит SmartShell API — не более 20 запросов в минуту на клуб — программа соблюдает сама.</div>
     <div class="card"><h2>Хосты для приставок</h2>
-      ${vh.length ? `<div class="table-wrap"><table><thead><tr><th>Хост</th><th>ID</th><th></th></tr></thead><tbody>${vh.map(v => `<tr><td><b>${esc(v.alias)}</b></td><td class="muted">${v.host_id}</td>
-        <td style="text-align:right"><button class="btn sm danger" data-vdel="${v.host_id}">${icon("trash")}Забыть</button></td></tr>`).join("")}</tbody></table></div>`
+      ${vh.length ? `<div class="table-wrap"><table><thead><tr><th>Хост</th>${multiClub() ? "<th>Клуб</th>" : ""}<th>ID</th><th></th></tr></thead><tbody>${vh.map(v => `<tr><td><b>${esc(v.alias)}</b></td>
+        ${multiClub() ? `<td>${esc(clubName(v.club_id) || "—")}</td>` : ""}<td class="muted">${v.host_id}</td>
+        <td style="text-align:right"><button class="btn sm danger" data-vdel="${v.host_id}" data-vclub="${esc(v.club_id || "")}">${icon("trash")}Забыть</button></td></tr>`).join("")}</tbody></table></div>`
         : `<p class="muted">Нет хостов, созданных программой. Их можно создать в разделе «Хосты» → «Добавить приставку».</p>`}
-      <p class="small muted">Программа держит эти хосты «в сети» на карте клуба. Если вы использовали старый PHP-скрипт — удалите старые хосты на карте клуба и создайте их здесь заново.</p></div>
-    </div>`;
-  bindSmartshellForm(el, "#ss-result");
-  $("#ss-save").onclick = e => busy(e.currentTarget, async () => { await api("/api/smartshell", readSmartshell(el)); toast("Сохранено", "ok"); });
+      <p class="small muted">Программа держит эти хосты «в сети» на карте клуба. Если вы использовали старый PHP-скрипт — удалите старые хосты на карте клуба и создайте их здесь заново.</p></div>`;
+  hydrateIcons(el);
+  $("#c-add").onclick = () => addClubDialog();
+  $$("[data-cedit]", el).forEach(b => b.onclick = () => editClubDialog(clubs.find(c => c.id === b.dataset.cedit)));
+  $$("[data-ctest]", el).forEach(b => b.onclick = e => busy(e.currentTarget, async () => {
+    const r = await api("/api/smartshell/test", { id: b.dataset.ctest }); toast(r.message, "ok");
+  }).catch(() => {}));
+  $$("[data-chosts]", el).forEach(b => b.onclick = () => { hostsView.club = b.dataset.chosts; go("bindings"); });
   $$("[data-vdel]", el).forEach(b => b.onclick = async () => {
     if (!(await confirmBox("Программа перестанет поддерживать этот хост в сети. Сам хост на карте клуба удалите в SmartShell.", "Забыть"))) return;
-    await api("/api/hosts/virtual/delete", { host_id: +b.dataset.vdel }); render();
+    await api("/api/hosts/virtual/delete", { host_id: +b.dataset.vdel, club_id: b.dataset.vclub }); render();
   });
 };
 
-function smartshellFields(ss) {
-  return `<label class="f"><span>Логин (телефон) <b>*</b></span><input id="ss-login" value="${esc(ss.login)}" placeholder="79001234567" autocomplete="off"></label>
-    <label class="f"><span>Пароль <b>*</b></span><input id="ss-pass" type="text" data-secret autocomplete="off" spellcheck="false" value="${esc(ss.password)}"></label>
-    <label class="f"><span>Клуб <b>*</b></span><div class="row" style="flex-wrap:nowrap"><select id="ss-club">${ss.company_id ? `<option value="${esc(ss.company_id)}">${esc(ss.club_name || "Клуб #" + ss.company_id)}</option>` : `<option value="">— нажмите «Найти» —</option>`}</select>
-      <button class="btn" type="button" id="ss-find">Найти</button></div><span class="help">Клубы загружаются по логину и паролю — ID вводить не нужно</span></label>
-    <label class="f"><span>ID клуба (вручную)</span><input id="ss-cid" value="${esc(ss.company_id)}" placeholder="заполнится автоматически"></label>`;
+// Поиск клубов по логину и паролю (общий для «Добавить клуб» и мастера настройки)
+function clubFinderHTML() {
+  return `<div class="form"><label class="f"><span>Логин (телефон) <b>*</b></span><input id="cf-login" placeholder="79001234567" autocomplete="off"></label>
+      <label class="f"><span>Пароль <b>*</b></span><input id="cf-pass" type="text" data-secret autocomplete="off" spellcheck="false"></label></div>
+    <div class="row" style="margin-top:12px"><button class="btn" type="button" id="cf-find">${icon("search")}Найти клубы</button>
+      <span class="small muted">клубы загружаются по логину и паролю — ID вводить не нужно</span></div>
+    <div id="cf-res"></div><div id="cf-list" class="stack" style="gap:8px;margin-top:10px"></div>
+    <details class="small" style="margin-top:12px"><summary class="muted">Ввести ID клуба вручную</summary>
+      <input id="cf-cid" placeholder="например 1234" style="margin-top:8px;max-width:220px"></details>`;
 }
-function readSmartshell(root) {
-  const sel = $("#ss-club", root);
-  const cid = $("#ss-cid", root).value.trim() || sel.value;
-  const name = sel.value === cid ? sel.options[sel.selectedIndex]?.text || "" : "";
-  return { login: $("#ss-login", root).value.trim(), password: $("#ss-pass", root).value, company_id: cid, club_name: name };
-}
-function bindSmartshellForm(root, resultSel) {
-  const result = (ok, msg) => { $(resultSel, root).innerHTML = `<div class="result ${ok ? "ok" : "err"}">${esc(msg)}</div>`; };
-  $("#ss-club", root).onchange = () => { $("#ss-cid", root).value = $("#ss-club", root).value; };
-  $("#ss-find", root).onclick = e => busy(e.currentTarget, async () => {
+function bindClubFinder(root) {
+  let found = [];
+  const res = (ok, msg) => { $("#cf-res", root).innerHTML = `<div class="result ${ok ? "ok" : "err"}">${esc(msg)}</div>`; };
+  const creds = () => ({ login: $("#cf-login", root).value.trim(), password: $("#cf-pass", root).value });
+  const find = async () => {
+    const c = creds();
+    if (!c.login || !c.password) { res(false, "Введите логин и пароль"); throw new Error("Введите логин и пароль SmartShell"); }
     try {
-      const r = await api("/api/smartshell/clubs", readSmartshell(root));
-      $("#ss-club", root).innerHTML = r.clubs.map(c => `<option value="${c.id}">${esc(c.name)}${c.address ? " — " + esc(c.address) : ""}</option>`).join("");
-      $("#ss-cid", root).value = r.clubs[0].id;
-      result(true, `Найдено клубов: ${r.clubs.length}`);
-    } catch (err) { result(false, err.message); }
+      found = (await api("/api/smartshell/clubs", c)).clubs;
+    } catch (e) { found = []; $("#cf-list", root).innerHTML = ""; res(false, e.message); throw e; }
+    $("#cf-list", root).innerHTML = found.map((k, i) => sw(`cf-c${i}`, !k.added,
+      `<b>${esc(k.name)}</b>${k.address ? ` <span class="muted">— ${esc(k.address)}</span>` : ""}${k.added ? ' <span class="tag">уже добавлен</span>' : ""}`,
+      k.added ? "disabled" : "")).join("");
+    const fresh = found.filter(k => !k.added).length;
+    res(true, !fresh ? `Все клубы этого аккаунта (${found.length}) уже добавлены` : found.length > 1 ? `Найдено клубов: ${found.length}. Отметьте, какими управлять` : `Найден клуб «${found[0].name}»`);
+  };
+  $("#cf-find", root).onclick = e => busy(e.currentTarget, find).catch(() => {});
+  $("#cf-pass", root).onkeydown = e => { if (e.key === "Enter") $("#cf-find", root).click(); };
+  return {
+    /** Добавить отмеченные клубы. Возвращает добавленные клубы. */
+    async submit() {
+      const c = creds();
+      const manual = $("#cf-cid", root).value.trim();
+      if (!found.length && !manual) {
+        await find();
+        // несколько клубов — пусть пользователь сам отметит нужные
+        if (found.filter(k => !k.added).length > 1) throw new Error(`Найдено клубов: ${found.length}. Отметьте нужные и нажмите кнопку ещё раз`);
+      }
+      const items = found.filter((k, i) => !k.added && $(`#cf-c${i}`, root)?.checked).map(k => ({ company_id: String(k.id), name: k.name }));
+      if (manual && !items.some(i => i.company_id === manual)) {
+        await api("/api/smartshell/test", { ...c, company_id: manual });
+        items.push({ company_id: manual, name: "" });
+      }
+      if (!items.length) throw new Error(found.some(k => !k.added) ? "Отметьте хотя бы один клуб" : "Новых клубов для добавления нет");
+      return (await api("/api/clubs/add-many", { ...c, clubs: items })).clubs;
+    },
+  };
+}
+
+function addClubDialog(after) {
+  const m = modal({ title: "Добавить клуб SmartShell", narrow: true, body: `<p class="muted" style="margin-top:0">Введите логин и пароль от billing.smartshell.gg —
+      покажем все клубы этого аккаунта. Клубы с другими логинами добавьте так же, ещё раз.</p>${clubFinderHTML()}`,
+    foot: `<button class="btn" data-x>Отмена</button><button class="btn primary" id="ac-ok">${icon("check")}Добавить</button>` });
+  $("[data-x]", m.el).onclick = m.close;
+  const finder = bindClubFinder(m.el);
+  $("#ac-ok", m.el).onclick = e => busy(e.currentTarget, async () => {
+    const added = await finder.submit();
+    toast(added.length > 1 ? `Добавлены клубы: ${added.map(c => c.name).join(", ")}` : `Клуб «${added[0].name}» добавлен`, "ok");
+    m.close(); await loadConfig(); setTimeout(pollState, 1500);
+    if (after) after(added); else if (S.page === "smartshell") render();
   }).catch(() => {});
-  const testBtn = $("#ss-test", root);
-  if (testBtn) testBtn.onclick = e => busy(e.currentTarget, async () => {
-    try { const r = await api("/api/smartshell/test", readSmartshell(root)); result(true, r.message); } catch (err) { result(false, err.message); }
+  setTimeout(() => $("#cf-login", m.el)?.focus(), 50);
+}
+
+function editClubDialog(c) {
+  const m = modal({ title: esc(c.name), narrow: true, body: `<div class="stack">
+      <label class="f"><span>Название (для вас)</span><input id="ec-name" value="${esc(c.name)}"></label>
+      <label class="f"><span>Логин (телефон)</span><input id="ec-login" value="${esc(c.login)}" autocomplete="off"></label>
+      <label class="f"><span>Пароль</span><input id="ec-pass" type="text" data-secret autocomplete="off" spellcheck="false" value="${esc(c.password)}"></label>
+      <div class="small muted">ID клуба в SmartShell: <b>${esc(c.company_id)}</b></div>
+      ${sw("ec-enabled", c.enabled !== false, "Управлять устройствами этого клуба")}
+      <div id="ec-res"></div></div>`,
+    foot: `<button class="btn danger" id="ec-del" style="margin-right:auto">${icon("trash")}Удалить</button><button class="btn" id="ec-test">${icon("check")}Проверить</button>
+      <button class="btn primary" id="ec-ok">${icon("check")}Сохранить</button>` });
+  const body = () => ({ id: c.id, name: $("#ec-name", m.el).value.trim(), login: $("#ec-login", m.el).value.trim(),
+    password: $("#ec-pass", m.el).value, enabled: $("#ec-enabled", m.el).checked });
+  $("#ec-test", m.el).onclick = e => busy(e.currentTarget, async () => {
+    try { const r = await api("/api/smartshell/test", body()); $("#ec-res", m.el).innerHTML = `<div class="result ok">${esc(r.message)}</div>`; }
+    catch (err) { $("#ec-res", m.el).innerHTML = `<div class="result err">${esc(err.message)}</div>`; }
   }).catch(() => {});
+  $("#ec-ok", m.el).onclick = e => busy(e.currentTarget, async () => {
+    await api("/api/clubs", body()); toast("Сохранено", "ok"); m.close(); await loadConfig(); render();
+  }).catch(() => {});
+  $("#ec-del", m.el).onclick = async () => {
+    const nb = S.config.bindings.filter(b => b.club_id === c.id).length;
+    if (!(await confirmBox(`Удалить клуб «${esc(c.name)}» из программы?${nb ? ` Будут удалены и его привязки (${nb}).` : ""} В самом SmartShell ничего не изменится.`, "Удалить"))) return;
+    await api("/api/clubs/delete", { id: c.id }); toast("Клуб удалён"); m.close(); await loadConfig(); render();
+  };
 }
 
 // ================================================================= LOGS
@@ -903,19 +1022,23 @@ async function wizard(step = 1) {
   const steps = `<div class="steps">${[1, 2, 3].map(i => `<div class="step ${i <= step ? "done" : ""}"></div>`).join("")}</div>`;
   const finish = async () => { await api("/api/wizard/done", {}); await pollState(); };
   if (step === 1) {
+    const clubs = S.config.clubs || [];
     const m = modal({ title: "Мастер настройки · 1/3 · SmartShell", body: `${steps}
       <p>Добро пожаловать! Программа автоматически включает розетки и устройства умного дома, когда на хосте в SmartShell начинается сеанс, и выключает, когда он заканчивается.</p>
-      <div class="form" style="margin-top:14px">${smartshellFields(S.config.smartshell)}</div><div id="wz-res"></div>`,
+      ${clubs.length ? `<div class="docs">Подключено клубов: ${clubs.length} — ${clubs.map(c => `<b>${esc(c.name)}</b>`).join(", ")}.
+          <div class="row" style="margin-top:10px"><button class="btn sm" id="wz-more">${icon("plus")}Добавить ещё клуб</button></div></div>`
+        : `<div style="margin-top:14px">${clubFinderHTML()}</div>`}`,
       foot: `<button class="btn ghost" id="wz-skip" style="margin-right:auto">Пропустить мастер</button><button class="btn primary" id="wz-next">Далее</button>`,
       onClose: () => {} });
-    bindSmartshellForm(m.el, "#wz-res");
+    const finder = clubs.length ? null : bindClubFinder(m.el);
+    const more = $("#wz-more", m.el);
+    if (more) more.onclick = () => { m.close(); addClubDialog(() => wizard(1)); };
     $("#wz-skip", m.el).onclick = async () => { m.close(); await finish(); };
     $("#wz-next", m.el).onclick = e => busy(e.currentTarget, async () => {
-      const data = readSmartshell(m.el);
-      if (!data.company_id) throw new Error("Нажмите «Найти» и выберите клуб");
-      const r = await api("/api/smartshell/test", data);
-      await api("/api/smartshell", data);
-      toast(r.message, "ok");
+      if (finder) {
+        const added = await finder.submit();
+        toast(added.length > 1 ? `Добавлены клубы: ${added.map(c => c.name).join(", ")}` : `Клуб «${added[0].name}» подключён`, "ok");
+      }
       m.close(); wizard(2);
     }).catch(() => {});
   } else if (step === 2) {
@@ -945,7 +1068,7 @@ async function wizard(step = 1) {
       matches = (await api("/api/bindings/auto-match", {})).matches;
       $("#wz-b", m.el).className = "";
       $("#wz-b", m.el).innerHTML = matches.length ? `<p>Найдены совпадения по названиям. Отметьте нужные:</p><div class="stack" style="gap:8px">${matches.map((x, i) =>
-        sw(`wzm-${i}`, true, `<b>${esc(x.host_alias)}</b> → ${esc(x.device_name)} <span class="muted">(${esc(connName(x.connector_id))})</span>`)).join("")}</div>`
+        sw(`wzm-${i}`, true, `<b>${esc(x.host_alias)}</b> → ${esc(x.device_name)} <span class="muted">(${esc(connName(x.connector_id))}${multiClub() ? ` · ${esc(clubName(x.club_id))}` : ""})</span>`)).join("")}</div>`
         : `<p>Совпадений по названиям не найдено.</p><p class="muted">Назовите устройства в умном доме так же, как хосты в SmartShell (например «PS5-1»), или нажмите «Настрою вручную» и выберите пары в таблице.</p>`;
     } catch (e) { $("#wz-b", m.el).innerHTML = `<div class="result err">${esc(e.message)}</div>`; }
   }
@@ -970,10 +1093,23 @@ document.addEventListener("click", e => {
   api("/api/open-url", { url: url.href }).catch(() => window.open(url.href, "_blank", "noopener"));
 });
 
+function showClosed() {
+  $("#closed").hidden = false;
+  if (S.quitting) setTimeout(() => window.close(), 600);
+}
+
 (function init() {
   let theme = null;
   try { theme = localStorage.getItem("ssb-theme"); } catch (e) { /* ignore */ }
   applyTheme(theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
+  $("#app-quit").onclick = async () => {
+    if (!confirm("Выйти из SmartShell Bridge?\n\nСинхронизация хостов с умным домом остановится до следующего запуска программы.")) return;
+    S.quitting = true;
+    try { await api("/api/app/quit", {}); } catch (e) { /* уже закрыта */ }
+    showClosed();
+  };
+  $("#closed-close").onclick = () => window.close();
+  $("#closed-retry").onclick = () => { S.quitting = false; S.fails = 0; pollState(); };
   $("#theme-toggle").onclick = () => applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
   hydrateIcons();
   $$("#nav a").forEach(a => a.onclick = () => go(a.dataset.page));

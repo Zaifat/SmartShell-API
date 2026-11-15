@@ -26,6 +26,7 @@
     <div class="side-foot">
       <div class="status-pill" id="status-pill"><span class="dot"></span><span id="status-text">Подключение…</span></div>
       <button class="btn ghost sm" id="theme-toggle" title="Тема"><i data-i="moon"></i></button>
+      <button class="btn ghost sm" id="app-quit" title="Выйти из программы"><i data-i="power"></i></button>
     </div>
   </aside>
   <main>
@@ -35,6 +36,9 @@
 </div>
 <div id="modal-root"></div>
 <div id="toasts"></div>
+<div id="closed" hidden><div class="closed-box"><img src="icon.svg" alt="" width="48" height="48">
+  <h2>SmartShell Bridge закрыт</h2><p class="muted">Программа не запущена. Окно можно закрыть.</p>
+  <div class="row" style="justify-content:center"><button class="btn primary" id="closed-close">Закрыть окно</button><button class="btn" id="closed-retry">Переподключиться</button></div></div></div>
 <script src="app.js"></script>
 </body>
 </html>
