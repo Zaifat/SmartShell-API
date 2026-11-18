@@ -85,7 +85,7 @@
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-Скрипт установит зависимости, прогонит тесты и соберёт установщик `dist\SmartShellBridge-Setup-<версия>.exe` (нужен [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`) и портативный архив `dist\SmartShellBridge.zip`. При публикации тега `v*` GitHub Actions соберёт оба файла и прикрепит их к релизу.
+Скрипт установит зависимости, прогонит тесты и соберёт установщик `dist\SmartShellBridge-Setup-<версия>.exe` (нужен [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`) и портативный архив `dist\SmartShellBridge.zip`. GitHub Actions на каждый push собирает оба файла и прикладывает их к запуску как артефакт.
 
 Демо-стенд для проверки интерфейса без настоящего клуба: `python tests/demo_server.py`, затем откройте http://127.0.0.1:18900.
 

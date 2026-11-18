@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read  # релиз публикует владелец репозитория, CI только собирает файлы
 
 jobs:
   build:
@@ -40,11 +40,3 @@ jobs:
           path: |
             dist/SmartShellBridge-Setup-*.exe
             dist/SmartShellBridge.zip
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/SmartShellBridge-Setup-*.exe
-            dist/SmartShellBridge.zip
-          generate_release_notes: true
