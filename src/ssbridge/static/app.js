@@ -318,7 +318,7 @@ function selectClub(id) {
 async function ensureDevices(cid, refresh = false) {
   if (!cid) return [];
   if (S.devices[cid] && !refresh) return S.devices[cid];
-  try { S.devices[cid] = (await api("/api/connectors/devices", { id: cid })).devices; }
+  try { const r = await api("/api/connectors/devices", { id: cid }); S.devices[cid] = r.devices; S.devices[cid].note = r.note || ""; }
   catch (e) { S.devices[cid] = []; S.devices[cid].error = e.message; }
   return S.devices[cid];
 }
@@ -517,6 +517,8 @@ function devicePicker({ title, hint, onPick }) {
         .sort((a, b) => (!!bindingOfDevice(a.connector_id, a.id)) - (!!bindingOfDevice(b.connector_id, b.id)));
       if (!sys.ok) html += `<div class="section-title">${esc(sys.name)}</div><div class="result err">${esc(sys.error)}</div>`;
       else if (ds.length) html += `<div class="section-title">${esc(sys.name)} · ${ds.length}</div>${ds.map(item).join("")}`;
+      else if (sys.note && !q) html += `<div class="section-title">${esc(sys.name)}</div>`;
+      if (sys.ok && sys.note && !q) html += noteHTML(sys.note, ds.length);
     });
     if (!html) html = `<div class="empty">${q ? "Ничего не найдено" : "В подключённых системах нет устройств с функцией вкл/выкл"}</div>`;
     list.innerHTML = html;
@@ -725,7 +727,7 @@ function editSystemDialog(conn, after) {
   $("#sys-list", root).onclick = e => busy(e.currentTarget, async () => {
     try {
       const r = await api("/api/connectors/devices", payload());
-      $("#sys-devs", root).innerHTML = devicesTable(r.devices, null);
+      $("#sys-devs", root).innerHTML = devicesTable(r.devices, null) + noteHTML(r.note, r.devices.length);
     } catch (err) { result(false, err.message); }
   }).catch(() => {});
   $("#sys-save", root).onclick = e => busy(e.currentTarget, async () => {
@@ -745,6 +747,10 @@ function editSystemDialog(conn, after) {
   };
 }
 
+// пояснение системы к списку устройств: почему пусто или что пропущено
+function noteHTML(note, count) {
+  return note ? `<div class="result ${count ? "warn" : "err"}">${esc(note)}</div>` : "";
+}
 function devicesTable(devs, cid) {
   if (!devs.length) return `<div class="empty">Устройства с функцией вкл/выкл не найдены</div>`;
   return `<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Устройство</th><th>Комната / тип</th><th>Состояние</th>${cid ? "<th>Проверка</th>" : ""}</tr></thead><tbody>
@@ -762,7 +768,7 @@ async function devicesDialog(conn) {
       const devs = await ensureDevices(conn.id, true);
       if (devs.error) throw new Error(devs.error);
       $("#dd-body", m.el).innerHTML = `<p class="muted small">Кнопки «Вкл/Выкл» позволяют проверить, что устройство управляется. Если устройство привязано к хосту,
-        при включённой синхронизации состояние будет приведено к нужному на следующем цикле.</p>` + devicesTable(devs, conn.id);
+        при включённой синхронизации состояние будет приведено к нужному на следующем цикле.</p>` + devicesTable(devs, conn.id) + noteHTML(devs.note, devs.length);
       $("#dd-body", m.el).className = "";
       $$("[data-dset]", m.el).forEach(b => b.onclick = e => busy(e.currentTarget, async () => {
         await api("/api/devices/set", { connector_id: conn.id, device_id: b.dataset.dset, device_name: b.dataset.name, on: b.dataset.on === "1" });

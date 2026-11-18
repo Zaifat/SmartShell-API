@@ -144,6 +144,72 @@ def test_tuya_signature_headers():
     assert h["client_id"] == "id" and len(h["sign"]) == 64 and h["sign"].isupper()
 
 
+def _tuya(devices, functions=None, settings=None):
+    """Коннектор Tuya с подменённым облаком: devices — ответ списка, functions — {id: [функции]}."""
+    c = make("tuya", {"access_id": "id", "access_secret": "sec", **(settings or {})})
+    fn_calls = []
+
+    def fns(url, kw):
+        dev = url.split("/devices/")[1].split("/")[0]
+        fn_calls.append(dev)
+        return Resp({"success": True, "result": {"functions": (functions or {}).get(dev, [])}})
+
+    c.http = FakeHTTP({
+        ("GET", "/v1.0/token"): Resp({"success": True, "result": {"access_token": "tok", "expire_time": 7200}}),
+        ("GET", "/functions"): fns,
+        ("GET", "/associated-users/devices"): Resp({"success": True, "result": {"devices": devices, "has_more": False}}),
+        ("POST", "/commands"): Resp({"success": True, "result": True}),
+    })
+    return c, fn_calls
+
+
+def test_tuya_no_devices_explains_why():
+    c, _ = _tuya([])
+    assert c.list_devices() == [] and "Link App Account" in c.note
+    with pytest.raises(BridgeError, match="не вернула ни одного устройства"):
+        c.test()
+
+
+def test_tuya_finds_switch_codes_beyond_standard_list():
+    c, calls = _tuya([
+        {"id": "a", "name": "Розетка", "status": [{"code": "switch_1", "value": True}]},
+        {"id": "b", "name": "Удлинитель USB", "status": [{"code": "switch_usb1", "value": False}, {"code": "countdown", "value": 0}]},
+    ])
+    devs = {d.id: d for d in c.list_devices()}
+    assert devs["a"].state is True and devs["b"].state is False
+    assert c.note == "" and calls == []
+    c.set_state("b", True)
+    assert json.loads(c.http.calls[-1][2]["data"])["commands"][0]["code"] == "switch_usb1"
+
+
+def test_tuya_uses_device_functions_and_caches_them():
+    c, calls = _tuya([{"id": "r", "name": "Реле VIP", "status": []}],
+                     functions={"r": [{"code": "countdown_1", "type": "Integer"}, {"code": "switch_1", "type": "Boolean"}]})
+    assert [d.name for d in c.list_devices()] == ["Реле VIP"]
+    c.list_devices()
+    assert calls == ["r"]  # список функций запрашивается один раз
+    c.set_state("r", False)
+    assert json.loads(c.http.calls[-1][2]["data"])["commands"][0]["code"] == "switch_1"
+
+
+def test_tuya_reports_skipped_devices():
+    c, calls = _tuya([
+        {"id": "a", "name": "Розетка", "status": [{"code": "switch_1", "value": False}]},
+        {"id": "t", "name": "Датчик температуры", "status": [{"code": "va_temperature", "value": 231}]},
+    ])
+    assert len(c.list_devices()) == 1
+    assert "пропущено: 1" in c.note and "Датчик температуры" in c.note
+    assert "найдено устройств: 1" in c.test()
+    c2, _ = _tuya([{"id": "t", "name": "Датчик", "status": []}])
+    with pytest.raises(BridgeError, match="без команды вкл/выкл"):
+        c2.test()
+
+
+def test_tuya_manual_switch_code_keeps_every_device():
+    c, calls = _tuya([{"id": "x", "name": "Нестандартное", "status": []}], settings={"switch_code": "switch_1"})
+    assert [d.id for d in c.list_devices()] == ["x"] and calls == [] and c.note == ""
+
+
 def test_helpers():
     assert as_bool("ON") is True and as_bool("off") is False and as_bool("unavailable") is None
     assert _match('{"state":"ON"}', "ON") is True

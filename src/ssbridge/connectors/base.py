@@ -74,6 +74,8 @@ class Connector:
         self.lock = threading.RLock()
         self._cache: dict[str, Device] = {}
         self._cache_ts = 0.0
+        # пояснение к последнему списку устройств (почему пусто / что пропущено)
+        self.note = ""
 
     # ---- helpers ----
     def opt(self, key: str, default: Any = "") -> Any:
@@ -109,7 +111,10 @@ class Connector:
     def test(self) -> str:
         """Проверка подключения. Возвращает сообщение или бросает BridgeError."""
         devs = self.list_devices()
-        return f"Подключение успешно, найдено устройств: {len(devs)}"
+        if not devs and self.note:
+            raise BridgeError(self.note)
+        msg = f"Подключение успешно, найдено устройств: {len(devs)}"
+        return f"{msg}. {self.note}" if self.note else msg
 
     def list_devices(self) -> list[Device]:
         raise NotImplementedError

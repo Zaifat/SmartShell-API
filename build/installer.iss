@@ -1,5 +1,5 @@
 ﻿; Установщик SmartShell Bridge (Inno Setup 6)
-; Сборка: ISCC.exe /DAppVersion=2.3.0 build\installer.iss   (см. build.ps1)
+; Сборка: ISCC.exe /DAppVersion=2.3.1 build\installer.iss   (см. build.ps1)
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"

@@ -269,7 +269,7 @@ class Api:
         try:
             with conn.lock:
                 devs = conn.list_devices()
-            return {"devices": sorted([d.to_dict() for d in devs], key=lambda d: _natural(d["name"]))}
+            return {"devices": sorted([d.to_dict() for d in devs], key=lambda d: _natural(d["name"])), "note": conn.note}
         finally:
             if temp:
                 conn.close()
@@ -361,11 +361,12 @@ class Api:
             hit = cache.get(conf["id"])
             if hit and not q.get("refresh") and now - hit[0] < 20 and hit[1] == sig:
                 return hit[2]
-            res = {"id": conf["id"], "name": conf.get("name"), "type": conf.get("type"), "ok": True, "error": "", "devices": []}
+            res = {"id": conf["id"], "name": conf.get("name"), "type": conf.get("type"), "ok": True, "error": "", "devices": [], "note": ""}
             try:
                 conn = self.engine.connector(conf["id"])
                 with conn.lock:
                     res["devices"] = sorted([d.to_dict() for d in conn.list_devices()], key=lambda d: _natural(d["name"]))
+                    res["note"] = conn.note
             except Exception as e:
                 res["ok"], res["error"] = False, describe(e)
             cache[conf["id"]] = (time.time(), sig, res)

@@ -1,4 +1,4 @@
-﻿﻿# Сборка SmartShell Bridge (папка с программой + zip-архив для раздачи)
+﻿# Сборка SmartShell Bridge (папка с программой + zip-архив для раздачи)
 # Запуск:  powershell -ExecutionPolicy Bypass -File build.ps1
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot

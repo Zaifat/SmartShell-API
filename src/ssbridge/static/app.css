@@ -192,6 +192,7 @@ td.num input { width: 90px; }
 .result { margin-top: 10px; font-size: 13px; padding: 9px 12px; border-radius: 9px; }
 .result.ok { background: rgba(34,197,94,.1); color: var(--ok); }
 .result.err { background: rgba(239,68,68,.1); color: var(--err); }
+.result.warn { background: rgba(234,179,8,.1); color: var(--warn); }
 
 @media (max-width: 860px) {
   #app { flex-direction: column; }
