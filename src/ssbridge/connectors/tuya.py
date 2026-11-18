@@ -46,11 +46,14 @@ class Tuya(Connector):
     category = "cloud"
     icon = "tuya"
     docs = (
-        "<ol><li>Зарегистрируйтесь на <a href='https://platform.tuya.com' target='_blank'>platform.tuya.com</a> → Cloud → "
-        "Development → <b>Create Cloud Project</b> (регион дата-центра — Central Europe).</li>"
-        "<li>Скопируйте <b>Access ID</b> и <b>Access Secret</b> со страницы проекта.</li>"
-        "<li>Вкладка Devices → Link App Account → отсканируйте QR-код в приложении Smart Life/Tuya.</li>"
-        "<li>Убедитесь, что в Service API подключены «IoT Core» и «Authorization».</li></ol>"
+        "<ol><li><a href='https://platform.tuya.com' target='_blank'>platform.tuya.com</a> → Cloud → "
+        "<b>Project Management</b> → <b>Create Cloud Project</b> (дата-центр — Central Europe).</li>"
+        "<li>Open Project → Overview: скопируйте <b>Access ID</b> и <b>Access Secret</b>. "
+        "Там же выключите <b>Cloud Authorization IP Allowlist</b> (или добавьте IP клуба).</li>"
+        "<li>Devices → <b>Link App Account</b> → Add App Account → отсканируйте QR-код в Smart Life/Tuya "
+        "(«Я» → сканер), права — Controllable.</li>"
+        "<li>Devices → All Devices: выберите дата-центр, где видны розетки, — и такой же ниже.</li></ol>"
+        "<p><a href='https://github.com/Zaifat/SmartShell-API/blob/main/docs/tuya.md' target='_blank'>Подробная инструкция и ошибки</a></p>"
     )
     fields = [
         field("access_id", "Access ID (Client ID)", required=True),

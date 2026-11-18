@@ -15,7 +15,7 @@
 | Система | Как подключается |
 |---|---|
 | **Яндекс Умный дом (Алиса)** | облако, OAuth-токен |
-| **Tuya / Smart Life** (Digma, Moes, Zemismart и большинство розеток с AliExpress) | облако Tuya, Access ID/Secret |
+| **Tuya / Smart Life** (Digma, Moes, Zemismart и большинство розеток с AliExpress) | облако Tuya, Access ID/Secret — [инструкция](docs/tuya.md) |
 | **Samsung SmartThings** | облако, Personal Access Token |
 | **Home Assistant** | REST API. Через него доступны Xiaomi/Aqara, Sber, HomeKit, Google Home, Zigbee и сотни других систем |
 | **Shelly** (Gen1, Plus/Pro, Gen3/Gen4) | локальная сеть |
